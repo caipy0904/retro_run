@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 做出只有周一的可玩原型：家里看电脑、自己决定关机、关机等待，然后在一条直路上跑回学校（3 条道、跳、钻、冲刺和体力、3 种阻碍），最后在校门判定按时或迟到并显示结算。
+**Goal:** 先验证 three.js 能在抖音小游戏里跑通"像素 3D"的三层合成；然后做出只有周一的可玩原型：家里看电脑、自己决定关机、关机等待，然后在一条斜 45° 像素 3D 直路上跑回学校（3 条道、跳、钻、冲刺和体力、3 种阻碍），最后在校门判定按时或迟到并显示结算。
 
-**Architecture:** 抖音原生小游戏，纯 JS + Canvas 2D + CommonJS，结构照搬 `../nine_to_nope`。引擎（`js/engine/`）只管逻辑，用 `on/emit` 发事件、`view()` 出快照；渲染器（`js/renderer/`）先把画面画到 180×320 的低分辨率离屏画布上，再整数倍放大上屏，中文文字单独画在高清层。像素素材在 `js/art/` 里用"调色板 + 字符矩阵"定义，启动时缓存成离屏画布。
+**Architecture:** 抖音原生小游戏，纯 JS + CommonJS，结构参照 `../nine_to_nope`。引擎（`js/engine/`）只管逻辑，用 `on/emit` 发事件、`view()` 出快照。画面分三层：跑步段的 3D 世界由 `world3d.js` 用 three.js 搭建，渲染到 180×320 的渲染目标；家里、标题、结算等 2D 画面和 HUD 画在 180×320 的 Canvas 2D 像素画布上；中文文字画在屏幕分辨率的文字画布上。`presenter-three.js` 把三层按整数倍放大合成到屏幕，是唯一碰 WebGL 的模块。像素素材在 `js/art/` 里用"调色板 + 字符矩阵"定义，2D 画面和 3D 纹理共用。
 
-**Tech Stack:** JavaScript（CommonJS，ES2017 以内的语法）、Canvas 2D、抖音小游戏 `tt.*` API、`node --test`（测试文件用 `.cjs`）。
+**Tech Stack:** JavaScript（CommonJS，ES2017 以内的语法）、three.js r162（esbuild 裁剪打包为 `js/libs/three.js`）、Canvas 2D、抖音小游戏 `tt.*` API、`node --test`（测试文件用 `.cjs`）。
 
-**Spec:** `docs/superpowers/specs/2026-10-13-retro-run-design.md`（本计划实现其中第 12 节的 M1）
+**Spec:** `docs/superpowers/specs/2026-10-13-retro-run-design.md`（第 2 版；本计划实现其中第 12 节的 M1）
 
 ## Global Constraints
 
@@ -17,21 +17,25 @@
 - 测试文件只能是 `test/*.test.cjs`（开发者工具会编译所有 `.js`，测试里的 `node:*` 模块会导致编译失败）。测试命令：`npm test`（即 `node --test "test/**/*.test.cjs"`）。
 - 引擎不碰平台和绘制；所有随机来自 `createRng(seed)`；引擎只用累计的 `dt`，单帧 `dt` 最多 `0.1` 秒，不调用 `Date.now()`。
 - 渲染器只读快照，`hitTest(x, y)` 只把坐标翻译成 `{ action }`。
+- three.js 固定 `three@0.162.0`（最后一个支持 WebGL 1 的版本），只通过 `js/libs/three.js` 引入；这个文件由 `npm run build:three` 生成并提交，不手改。
+- 只有 `js/renderer/presenter-three.js` 创建 `WebGLRenderer`；`world3d.js` 只创建场景对象（Node 里不需要 WebGL 也能测）。
+- 跑步段：正交摄像机斜 45° 俯视，学生朝屏幕左上方跑；轨道第 z 米 = three.js 里的 `-z`；路段都是直的。3D 纹理一律最近邻过滤、不生成 mipmap。
 - 时钟：从 12:25 开始，13:00 打铃；1 游戏分钟 = 3 真实秒；家里段和跑步段连续走，出门转场 2 秒不走时钟。
 - 过瘾值每游戏分钟 +10；关机等待 1～2 游戏分钟；20% 概率"程序没有响应"，点"结束任务"后额外等 0.5 游戏分钟。
 - 跑步：3 条道；冲刺速度 ×1.5；体力 100，冲刺每秒 -25，不冲刺每秒 +8；体力到 0 喘气 1.5 秒、速度减半，之后体力回到 30。
 - 撞到障碍不会死，只扣时间。M1 没有好人好事，所以迟到就是失败。
-- 像素画布 180×320，整数倍（按设备像素）放大，放在安全区内居中。
+- 像素画面 180×320，按设备像素整数倍放大，放在安全区内居中。
 - 版权：画面里不出现原作名字、Logo（M1 的屏幕画面只是一个"恐龙回合制"占位画）。
+- **Task 3 是关卡**：技术验证在抖音上不通过，就停下来和 Rainman 讨论，不继续往下做。
 - 不包含：音频、存档、路口、补给、好人好事、其他四天。
 
 ## Review Focus
 
-- 一直不关机，挂到 13:00：应当立刻结束这一局，显示"13:00 了，你还坐在电脑前"的失败结算，而不是卡住或进入跑步段。→ Task 6 测试
-- 按按钮按得慢（按住超过 180 毫秒才松开）：按钮也必须生效，不能因为被识别成"长按"就吞掉。→ Task 7 测试
-- 切到后台（来电、下拉通知）：时钟停止、冲刺松开，回来后点一下屏幕继续；暂停期间的滑动不生效。→ Task 6、Task 12 测试
-- 卡顿导致一帧很长（比如 5 秒）：时钟最多走 0.1 秒对应的量，跑步者不能借着大步长穿过障碍。→ Task 6 测试
-- 不同屏幕比例（很长的全面屏、iPad、小屏安卓）：画面整数倍放大、居中、不压到刘海和底部横条，点击坐标换算正确。→ Task 9 测试
+- 一直不关机，挂到 13:00：应当立刻结束这一局，显示"13:00 了，你还坐在电脑前"的失败结算，而不是卡住或进入跑步段。→ Task 8 测试
+- 按按钮按得慢（按住超过 180 毫秒才松开）：按钮也必须生效，不能因为被识别成"长按"就吞掉。→ Task 9 测试
+- 切到后台（来电、下拉通知）：时钟停止、冲刺松开，回来后点一下屏幕继续；暂停期间的滑动不生效。→ Task 8、Task 14 测试
+- 卡顿导致一帧很长（比如 5 秒）：时钟最多走 0.1 秒对应的量，跑步者不能借着大步长穿过障碍。→ Task 8 测试
+- 不同屏幕比例（很长的全面屏、iPad、小屏安卓）：画面整数倍放大、居中、不压到刘海和底部横条，点击坐标换算正确。→ Task 11 测试
 
 ---
 
@@ -40,13 +44,17 @@
 ```
 game.js                     入口：require('./js/main')
 game.json                   竖屏
-project.config.json         原生工程；打包忽略 test/、docs/、tools/
-package.json                只放 test 脚本
+project.config.json         原生工程；打包忽略 test/、docs/、tools/、node_modules/
+package.json                test、build:three 脚本；开发依赖 three@0.162.0、esbuild
 .gitignore                  加上 .claude/
+tools/
+  three-entry.mjs           列出用到的 three.js 类
+  build-three.cjs           esbuild 裁剪打包 → js/libs/three.js
 js/
+  libs/three.js             生成的 three.js（提交）
   main.js                   组装模块、触摸 → 手势 → 引擎、主循环；导出 { engine, renderer } 供测试和预览
   config.js                 全局常量
-  platform.js               tt.* 适配（画布、离屏画布、安全区、触摸、震动、生命周期）
+  platform.js               tt.* 适配（WebGL 上屏画布、离屏画布、安全区、触摸、震动、生命周期）
   util.js                   clamp / pad2 / createRng / pickWeighted
   input.js                  GestureTracker：滑动、长按、点击
   data/
@@ -56,7 +64,7 @@ js/
     clock.js                午休时钟
     home.js                 家里段：过瘾值、诱惑、关机流程
     runner.js               跑步者
-    track.js                轨道：物件和弯道
+    track.js                轨道：物件
     game-engine.js          单局总控
   art/
     palette.js              全局调色板
@@ -65,14 +73,14 @@ js/
     sprites/stone.js        电脑屏幕里的恐龙回合制占位画
     sprites.js              素材表 + 缓存 + 绘制
   renderer/
+    presenter-three.js      三层合成上屏（唯一碰 WebGL 的模块）
+    world3d.js              跑步段的 3D 场景
     pixel.js                像素绘图工具：矩形、进度条、像素数字、时钟牌
-    road.js                 伪 3D 道路投影
-    renderer.js             场景路由、低分辨率画布、高清文字层、hitTest、抖动和浮字
+    renderer.js             场景路由、像素画布、文字画布、hitTest、抖动和浮字
     scene-title.js / scene-home.js / scene-leaving.js / scene-run.js / scene-result.js
 test/
-  project-layout.test.cjs  util.test.cjs  clock.test.cjs  home.test.cjs  runner.test.cjs
-  track.test.cjs  game-engine.test.cjs  input.test.cjs  sprites.test.cjs  render-smoke.test.cjs
-  main-wiring.test.cjs
+  project-layout  three-bundle  util  clock  home  runner  track  game-engine  input
+  sprites  render-smoke  main-wiring（都是 .test.cjs）
 .claude/launch.json         本地预览服务器（不提交）
 .claude/preview/index.html  浏览器里模拟 tt 运行游戏（不提交）
 ```
@@ -107,12 +115,12 @@ test('test/ 目录下没有 .js 文件', () => {
   assert.deepEqual(js, []);
 });
 
-test('project.config.json：原生工程，打包时忽略 test、docs、tools', () => {
+test('project.config.json：原生工程，打包时忽略 test、docs、tools、node_modules', () => {
   const cfg = JSON.parse(fs.readFileSync(path.join(root, 'project.config.json'), 'utf8'));
   assert.equal(cfg.douyinProjectType, 'native');
   assert.equal(cfg.projectname, 'retro_run');
   const folders = cfg.packOptions.ignore.filter((r) => r.type === 'folder').map((r) => r.value);
-  for (const f of ['test', 'docs', 'tools']) assert.ok(folders.includes(f), f);
+  for (const f of ['test', 'docs', 'tools', 'node_modules']) assert.ok(folders.includes(f), f);
 });
 
 test('game.json：竖屏', () => {
@@ -196,7 +204,8 @@ require('./js/main');
         "ignore": [
             { "type": "folder", "value": "test" },
             { "type": "folder", "value": "docs" },
-            { "type": "folder", "value": "tools" }
+            { "type": "folder", "value": "tools" },
+            { "type": "folder", "value": "node_modules" }
         ]
     },
     "appid": "testAppId",
@@ -259,7 +268,7 @@ function pickWeighted(rng, weights) {
 module.exports = { clamp, pad2, createRng, pickWeighted };
 ```
 
-注意：此时 `game.js` 引用的 `js/main.js` 还不存在，Task 12 才创建，这不影响测试。
+注意：此时 `game.js` 引用的 `js/main.js` 还不存在（Task 3 先写临时的验证版，Task 14 换成正式版），这不影响测试。
 
 - [ ] **Step 4: 运行，确认通过**
 
@@ -275,7 +284,589 @@ git commit -m "chore: scaffold douyin native project with util helpers"
 
 ---
 
-### Task 2: 全局配置和午休时钟
+### Task 2: three.js 裁剪打包
+
+**Files:**
+- Modify: `package.json`
+- Create: `tools/three-entry.mjs`, `tools/build-three.cjs`, `js/libs/three.js`（生成）
+- Test: `test/three-bundle.test.cjs`
+
+**Interfaces:**
+- Produces: `js/libs/three.js`，CommonJS，导出 `REVISION`（`'162'`）、`WebGLRenderer`、`WebGLRenderTarget`、`Scene`、`Group`、`Mesh`、`Sprite`、`OrthographicCamera`、`BoxGeometry`、`PlaneGeometry`、`CircleGeometry`、`MeshBasicMaterial`、`MeshLambertMaterial`、`SpriteMaterial`、`CanvasTexture`、`Color`、`Fog`、`HemisphereLight`、`DirectionalLight`、`NearestFilter`、`LinearFilter`、`BasicShadowMap`、`SRGBColorSpace`。后续任务只用这些名字；要用新的类就加到 `tools/three-entry.mjs` 里重新打包。
+
+- [ ] **Step 1: 写失败的测试**
+
+`test/three-bundle.test.cjs`:
+
+```js
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.join(__dirname, '..');
+const BUNDLE = path.join(root, 'js', 'libs', 'three.js');
+const NAMES = ['WebGLRenderer', 'WebGLRenderTarget', 'Scene', 'Group', 'Mesh', 'Sprite', 'OrthographicCamera',
+  'BoxGeometry', 'PlaneGeometry', 'CircleGeometry', 'MeshBasicMaterial', 'MeshLambertMaterial', 'SpriteMaterial',
+  'CanvasTexture', 'Color', 'Fog', 'HemisphereLight', 'DirectionalLight',
+  'NearestFilter', 'LinearFilter', 'BasicShadowMap', 'SRGBColorSpace'];
+
+test('package.json 固定 three@0.162.0（最后支持 WebGL 1 的版本）', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(pkg.devDependencies.three, '0.162.0');
+  assert.ok(pkg.devDependencies.esbuild);
+  assert.equal(pkg.scripts['build:three'], 'node tools/build-three.cjs');
+});
+
+test('js/libs/three.js 是 r162，导出了用到的所有类', () => {
+  const T = require(BUNDLE);
+  assert.equal(T.REVISION, '162');
+  for (const n of NAMES) assert.ok(T[n] !== undefined, n);
+});
+
+test('体积在 700KB 以内', () => {
+  const size = fs.statSync(BUNDLE).size;
+  assert.ok(size < 700 * 1024, `three.js 打包后 ${Math.round(size / 1024)}KB`);
+});
+```
+
+- [ ] **Step 2: 运行，确认失败**
+
+Run: `node --test test/three-bundle.test.cjs`
+Expected: FAIL（`pkg.devDependencies` 是 undefined）
+
+- [ ] **Step 3: 安装依赖并写打包脚本**
+
+Run: `npm install --save-dev --save-exact three@0.162.0 esbuild`
+
+然后在 `package.json` 的 `scripts` 里加一行，结果应当是（esbuild 的版本号以 npm 实际装上的为准）：
+
+```json
+{
+  "name": "retro_run",
+  "private": true,
+  "scripts": {
+    "test": "node --test \"test/**/*.test.cjs\"",
+    "build:three": "node tools/build-three.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "x.y.z",
+    "three": "0.162.0"
+  }
+}
+```
+
+`tools/three-entry.mjs`:
+
+```js
+// 游戏里用到的 three.js 类（设计文档 10.1）。要用新的类就加在这里，再 npm run build:three
+export {
+  REVISION,
+  WebGLRenderer, WebGLRenderTarget,
+  Scene, Group, Mesh, Sprite, OrthographicCamera,
+  BoxGeometry, PlaneGeometry, CircleGeometry,
+  MeshBasicMaterial, MeshLambertMaterial, SpriteMaterial,
+  CanvasTexture, Color, Fog,
+  HemisphereLight, DirectionalLight,
+  NearestFilter, LinearFilter, BasicShadowMap, SRGBColorSpace,
+} from 'three';
+```
+
+`tools/build-three.cjs`:
+
+```js
+/**
+ * 把 three.js 里用到的类裁剪打包成一个压缩的 CommonJS 文件（设计文档 10.1、10.3）
+ * 输出 js/libs/three.js 并提交，抖音开发者工具里不需要再构建
+ * 用法：npm run build:three
+ */
+const path = require('node:path');
+const fs = require('node:fs');
+const esbuild = require('esbuild');
+
+const out = path.join(__dirname, '..', 'js', 'libs', 'three.js');
+esbuild.buildSync({
+  entryPoints: [path.join(__dirname, 'three-entry.mjs')],
+  outfile: out,
+  bundle: true,
+  format: 'cjs',
+  platform: 'neutral',
+  mainFields: ['module', 'main'],
+  target: 'es2017',
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '/* three.js r162 (MIT License, https://github.com/mrdoob/three.js) — 由 tools/build-three.cjs 生成，不要手改 */' },
+});
+console.log(`js/libs/three.js ${Math.round(fs.statSync(out).size / 1024)}KB`);
+```
+
+Run: `npm run build:three`
+Expected: 输出 `js/libs/three.js` 和体积（预计 400～600KB）。
+
+- [ ] **Step 4: 运行，确认通过**
+
+Run: `npm test`
+Expected: PASS。如果体积超过 700KB，先检查 `three-entry.mjs` 是否误导出了整个库，不要直接调高预算。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add package.json package-lock.json tools/three-entry.mjs tools/build-three.cjs js/libs/three.js test/three-bundle.test.cjs
+git commit -m "build: bundle trimmed three.js r162 for douyin"
+```
+
+---
+
+### Task 3: 技术验证——three.js 在抖音上跑通三层合成（关卡）
+
+这一步写的 `platform.js` 和 `presenter-three.js` 是正式代码，后面直接用；`js/main.js` 是临时的验证程序，Task 14 会整个替换掉。WebGL 在 Node 里没法跑，所以这一步不写单元测试，靠浏览器预览和抖音开发者工具验证。
+
+**Files:**
+- Create: `js/platform.js`, `js/renderer/presenter-three.js`, `js/main.js`（临时）
+- Create（不提交）: `.claude/launch.json`, `.claude/preview/index.html`
+
+**Interfaces:**
+- Consumes: `js/libs/three.js`（Task 2）
+- Produces:
+  - `js/platform.js` 导出 `{ width, height, dpr, safe: { top, bottom }, createScreenCanvas() → { canvas, gl }, createOffscreen(w, h) → canvas, onTouchStart(fn), onTouchMove(fn), onTouchEnd(fn), onTouchCancel(fn), onHide(fn), onShow(fn), vibrate(kind), getStorage(key), setStorage(key, value), raf(fn), now() }`；触摸回调签名 `fn(id, x, y)`；`createScreenCanvas` 必须最先调用
+  - `js/renderer/presenter-three.js` 导出 `class ThreePresenter`：`new ThreePresenter({ canvas, gl, W, H, dpr })`；`present({ world, pixel, text, textDirty, layout, shake, bg })`，其中 `world` 是 `{ scene, camera, w, h } | null`，`pixel` 是 180×320 的 2D 画布（每帧上传），`text` 是屏幕分辨率的 2D 画布（`textDirty` 为真才上传），`layout` 是 `{ ox, oy, w, h }`（CSS 像素），`shake` 是 `{ x, y }`（只作用于世界层和像素层，文字层的抖动由调用方画进去），`bg` 是四周留边的颜色
+
+- [ ] **Step 1: 写平台层**
+
+`js/platform.js`:
+
+```js
+/**
+ * 平台适配层：所有 tt.* 调用集中在这里，其余模块不直接依赖抖音 API
+ * 迁移到微信小游戏时，把 tt 换成 wx 即可
+ */
+/* global tt */
+const api = typeof tt !== 'undefined' ? tt : null;
+
+const sys = api.getSystemInfoSync();
+const width = sys.windowWidth;
+const height = sys.windowHeight;
+const dpr = sys.pixelRatio || 1;
+
+// 安全区：顶部避开状态栏和右上角胶囊按钮，底部避开 Home Indicator
+function computeSafeInsets() {
+  let top = sys.safeArea ? sys.safeArea.top : sys.statusBarHeight || 20;
+  const bottom = sys.safeArea ? Math.max(0, height - sys.safeArea.bottom) : 0;
+  try {
+    const menu = api.getMenuButtonBoundingClientRect && api.getMenuButtonBoundingClientRect();
+    if (menu && menu.bottom) top = Math.max(top, menu.bottom);
+  } catch (e) { /* 部分版本不支持，忽略 */ }
+  return { top, bottom };
+}
+
+// 第一个 createCanvas 创建的是上屏画布，整块屏幕交给 WebGL（设计文档 10.3）
+// 先要 WebGL 2，拿不到再用 WebGL 1（three.js r162 两种都支持）
+function createScreenCanvas() {
+  const canvas = api.createCanvas();
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  // three.js 会给画布挂 webglcontextlost 监听；小游戏画布没有这两个方法时补上空实现
+  if (!canvas.addEventListener) {
+    canvas.addEventListener = () => {};
+    canvas.removeEventListener = () => {};
+  }
+  const opts = { antialias: false, alpha: false, depth: true, stencil: false, preserveDrawingBuffer: false };
+  const gl = canvas.getContext('webgl2', opts) || canvas.getContext('webgl', opts);
+  return { canvas, gl };
+}
+
+// 之后的 createCanvas 都是离屏画布：像素层、文字层、精灵缓存
+function createOffscreen(w, h) {
+  const canvas = api.createCanvas();
+  canvas.width = w;
+  canvas.height = h;
+  return canvas;
+}
+
+// 触摸：对本次变化的每根手指回调 fn(id, x, y)
+function bindTouches(register, fn) {
+  register((res) => {
+    const list = res.changedTouches || [];
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      fn(t.identifier != null ? t.identifier : i, t.clientX, t.clientY);
+    }
+  });
+}
+
+function onTouchStart(fn) { bindTouches((cb) => api.onTouchStart(cb), fn); }
+function onTouchMove(fn) { bindTouches((cb) => api.onTouchMove(cb), fn); }
+function onTouchEnd(fn) { bindTouches((cb) => api.onTouchEnd(cb), fn); }
+function onTouchCancel(fn) {
+  if (api.onTouchCancel) bindTouches((cb) => api.onTouchCancel(cb), fn);
+}
+
+function onHide(fn) { if (api.onHide) api.onHide(fn); }
+function onShow(fn) { if (api.onShow) api.onShow(fn); }
+
+// kind: 'light' 轻震一次；'double' 短震两次；'long' 长震一次
+function vibrate(kind = 'light') {
+  try {
+    if (kind === 'long') {
+      if (api.vibrateLong) api.vibrateLong({});
+      return;
+    }
+    if (api.vibrateShort) api.vibrateShort({});
+    if (kind === 'double') setTimeout(() => { try { api.vibrateShort({}); } catch (e) { /* 忽略 */ } }, 120);
+  } catch (e) { /* 忽略 */ }
+}
+
+function getStorage(key) {
+  try { return api.getStorageSync(key); } catch (e) { return null; }
+}
+
+function setStorage(key, value) {
+  try { api.setStorageSync(key, value); } catch (e) { /* 忽略 */ }
+}
+
+module.exports = {
+  width, height, dpr,
+  safe: computeSafeInsets(),
+  createScreenCanvas, createOffscreen,
+  onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onHide, onShow,
+  vibrate, getStorage, setStorage,
+  raf: (fn) => requestAnimationFrame(fn),
+  now: () => Date.now(),
+};
+```
+
+- [ ] **Step 2: 写三层合成**
+
+`js/renderer/presenter-three.js`:
+
+```js
+const THREE = require('../libs/three');
+
+/**
+ * 上屏（设计文档 10.3）：把三层画面合成到屏幕。整个工程只有这里创建 WebGLRenderer
+ *   1. 3D 世界：渲染到 w×h 的渲染目标（最近邻），贴到布局矩形上
+ *   2. 2D 像素层：Canvas 2D 画布，每帧上传，贴到同一个布局矩形上
+ *   3. 文字层：屏幕分辨率的 Canvas 2D 画布，内容变了才上传，铺满全屏
+ * 合成用的正交摄像机以 CSS 像素为单位，原点在屏幕左上角，y 向下为负
+ */
+class ThreePresenter {
+  constructor({ canvas, gl, W, H, dpr }) {
+    this.W = W;
+    this.H = H;
+    const r = new THREE.WebGLRenderer({ canvas, context: gl, antialias: false });
+    r.setPixelRatio(dpr);
+    r.setSize(W, H, false);
+    r.shadowMap.enabled = true;
+    r.shadowMap.type = THREE.BasicShadowMap;
+    r.autoClear = false;
+    this.renderer = r;
+    this.target = null;
+    this.camera = new THREE.OrthographicCamera(0, W, 0, -H, -10, 10);
+    this.scene = new THREE.Scene();
+    this.worldQuad = this.quad(0);
+    this.pixelQuad = this.quad(1);
+    this.textQuad = this.quad(2);
+  }
+
+  quad(order) {
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    m.renderOrder = order;
+    m.visible = false;
+    this.scene.add(m);
+    return m;
+  }
+
+  place(m, x, y, w, h) {
+    m.scale.set(w, h, 1);
+    m.position.set(x + w / 2, -(y + h / 2), 0);
+    m.visible = true;
+  }
+
+  // 第一次见到这张画布时建纹理；之后只在 dirty 时重新上传
+  bind(m, canvas, filter, dirty) {
+    const old = m.material.map;
+    if (old && old.image === canvas) {
+      if (dirty) old.needsUpdate = true;
+      return;
+    }
+    const t = new THREE.CanvasTexture(canvas);
+    t.minFilter = filter;
+    t.magFilter = filter;
+    t.generateMipmaps = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    if (old) old.dispose();
+    m.material.map = t;
+    m.material.needsUpdate = true;
+  }
+
+  present({ world, pixel, text, textDirty, layout, shake, bg }) {
+    const r = this.renderer;
+    const L = layout;
+    if (world) {
+      if (!this.target || this.target.width !== world.w || this.target.height !== world.h) {
+        if (this.target) this.target.dispose();
+        this.target = new THREE.WebGLRenderTarget(world.w, world.h, {
+          minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false,
+        });
+        this.worldQuad.material.map = this.target.texture;
+        this.worldQuad.material.needsUpdate = true;
+      }
+      r.setRenderTarget(this.target);
+      r.clear();
+      r.render(world.scene, world.camera);
+      r.setRenderTarget(null);
+      this.place(this.worldQuad, L.ox + shake.x, L.oy + shake.y, L.w, L.h);
+    } else {
+      this.worldQuad.visible = false;
+    }
+    this.bind(this.pixelQuad, pixel, THREE.NearestFilter, true);
+    this.place(this.pixelQuad, L.ox + shake.x, L.oy + shake.y, L.w, L.h);
+    this.bind(this.textQuad, text, THREE.LinearFilter, textDirty);
+    this.place(this.textQuad, 0, 0, this.W, this.H);
+    r.setClearColor(bg, 1);
+    r.clear();
+    r.render(this.scene, this.camera);
+  }
+}
+
+module.exports = ThreePresenter;
+```
+
+- [ ] **Step 3: 写临时验证程序**
+
+`js/main.js`:
+
+```js
+/**
+ * 技术验证（M1 Task 3）：在抖音小游戏里跑通 three.js 三层合成
+ *   3D：三个贴像素纹理的方块在转，有阴影 → 180×320 渲染目标
+ *   2D 像素层：底部一根每帧变化的进度条（验证每帧上传）
+ *   文字层：帧率、WebGL 版本、放大倍数（验证中文和高清文字）
+ * Task 14 会用正式的 main.js 整个替换这个文件
+ */
+const THREE = require('./libs/three');
+const platform = require('./platform');
+const ThreePresenter = require('./renderer/presenter-three');
+
+const VW = 180;
+const VH = 320;
+const W = platform.width;
+const H = platform.height;
+const dpr = platform.dpr;
+const safe = platform.safe;
+const { canvas, gl } = platform.createScreenCanvas();
+const presenter = new ThreePresenter({ canvas, gl, W, H, dpr });
+const availH = H - safe.top - safe.bottom;
+const k = Math.max(1, Math.floor(Math.min((W * dpr) / VW, (availH * dpr) / VH)));
+const scale = k / dpr;
+const layout = {
+  ox: Math.round((W - VW * scale) / 2), oy: Math.round(safe.top + (availH - VH * scale) / 2),
+  w: VW * scale, h: VH * scale,
+};
+
+const pixel = platform.createOffscreen(VW, VH);
+const pg = pixel.getContext('2d');
+const text = platform.createOffscreen(Math.round(W * dpr), Math.round(H * dpr));
+const tg = text.getContext('2d');
+
+const tile = platform.createOffscreen(8, 8);
+const tc = tile.getContext('2d');
+for (let y = 0; y < 8; y++) {
+  for (let x = 0; x < 8; x++) {
+    tc.fillStyle = (x + y) % 2 ? '#c8473a' : '#f2b632';
+    tc.fillRect(x, y, 1, 1);
+  }
+}
+const tex = new THREE.CanvasTexture(tile);
+tex.minFilter = THREE.NearestFilter;
+tex.magFilter = THREE.NearestFilter;
+tex.generateMipmaps = false;
+tex.colorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#a9cde0');
+const a = VW / VH;
+const camera = new THREE.OrthographicCamera(-12 * a, 12 * a, 12, -12, 0.1, 200);
+camera.position.set(-12, 16, 12);
+camera.lookAt(0, 0, 0);
+scene.add(new THREE.HemisphereLight('#fff6e0', '#8fb35a', 0.8));
+const sun = new THREE.DirectionalLight('#fff1d0', 0.8);
+sun.position.set(-8, 16, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(512, 512);
+Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20 });
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ color: '#8fb35a' }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+const boxes = [];
+for (let i = 0; i < 3; i++) {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshLambertMaterial({ map: tex }));
+  b.position.set((i - 1) * 4, 1, 0);
+  b.castShadow = true;
+  scene.add(b);
+  boxes.push(b);
+}
+
+const webgl = gl && typeof gl.texImage3D === 'function' ? 2 : 1;
+let frames = 0;
+let fps = 0;
+let since = platform.now();
+let label = '';
+function loop() {
+  const t = platform.now();
+  frames++;
+  if (t - since >= 500) {
+    fps = Math.round((frames * 1000) / (t - since));
+    frames = 0;
+    since = t;
+  }
+  boxes.forEach((b, i) => { b.rotation.y = t / 600 + i; });
+  pg.clearRect(0, 0, VW, VH);
+  pg.fillStyle = '#141210';
+  pg.fillRect(4, 300, 172, 10);
+  pg.fillStyle = '#f2b632';
+  pg.fillRect(4, 300, (t / 10) % 172, 10);
+  const next = `帧率 ${fps} · WebGL ${webgl} · ${k} 倍`;
+  const textDirty = next !== label;
+  if (textDirty) {
+    label = next;
+    tg.clearRect(0, 0, text.width, text.height);
+    tg.font = `bold ${Math.round(16 * dpr)}px sans-serif`;
+    tg.fillStyle = '#141210';
+    tg.textAlign = 'center';
+    tg.textBaseline = 'middle';
+    tg.fillText(label, (W / 2) * dpr, (layout.oy + 20) * dpr);
+  }
+  presenter.present({ world: { scene, camera, w: VW, h: VH }, pixel, text, textDirty, layout, shake: { x: 0, y: 0 }, bg: '#000000' });
+  platform.raf(loop);
+}
+
+loop();
+```
+
+- [ ] **Step 4: 写浏览器预览**
+
+`.claude/launch.json`:
+
+```json
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "retro-run-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8766", "--bind", "127.0.0.1"],
+      "port": 8766
+    }
+  ]
+}
+```
+
+`.claude/preview/index.html`:
+
+```html
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>retro_run 预览</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;touch-action:none}</style>
+</head><body><canvas id="c"></canvas>
+<script>
+// 仅供本地预览（服务根目录为工程根目录，访问 /.claude/preview/index.html）：
+// 用浏览器模拟 tt 接口，并提供一个同步的 CommonJS 加载器
+const cache = {};
+function load(path) {
+  if (cache[path]) return cache[path].exports;
+  const x = new XMLHttpRequest(); x.open('GET', path, false); x.send();
+  if (x.status !== 200) throw new Error('load ' + path + ' ' + x.status);
+  const module = { exports: {} }; cache[path] = module;
+  const dir = path.slice(0, path.lastIndexOf('/') + 1);
+  const req = (p) => load(new URL(p.endsWith('.js') ? p : p + '.js', location.origin + dir).pathname);
+  new Function('module', 'exports', 'require', x.responseText + '\n//# sourceURL=' + path)(module, module.exports, req);
+  return module.exports;
+}
+const W = innerWidth, H = innerHeight, screenCanvas = document.getElementById('c');
+screenCanvas.style.width = W + 'px'; screenCanvas.style.height = H + 'px';
+let first = true;
+const handlers = {};
+function emit(kind, id, e) { (handlers[kind] || []).forEach((fn) => fn({ changedTouches: [{ identifier: id, clientX: e.clientX, clientY: e.clientY }] })); }
+let down = false;
+screenCanvas.addEventListener('mousedown', (e) => { down = true; emit('start', 0, e); });
+screenCanvas.addEventListener('mousemove', (e) => { if (down) emit('move', 0, e); });
+addEventListener('mouseup', (e) => { if (down) { down = false; emit('end', 0, e); } });
+screenCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); [...e.changedTouches].forEach((t) => emit('start', t.identifier, t)); }, { passive: false });
+screenCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); [...e.changedTouches].forEach((t) => emit('move', t.identifier, t)); }, { passive: false });
+screenCanvas.addEventListener('touchend', (e) => [...e.changedTouches].forEach((t) => emit('end', t.identifier, t)));
+// 键盘：方向键 = 滑动，空格按住 = 冲刺（只为桌面试玩方便）
+const KEY = { ArrowLeft: [-40, 0], ArrowRight: [40, 0], ArrowUp: [0, -40], ArrowDown: [0, 40] };
+addEventListener('keydown', (e) => {
+  if (KEY[e.key]) { const [dx, dy] = KEY[e.key]; emit('start', 9, { clientX: 200, clientY: 400 }); emit('move', 9, { clientX: 200 + dx, clientY: 400 + dy }); emit('end', 9, { clientX: 200 + dx, clientY: 400 + dy }); }
+  if (e.key === ' ' && !e.repeat) emit('start', 8, { clientX: 1, clientY: 1 });
+});
+addEventListener('keyup', (e) => { if (e.key === ' ') emit('end', 8, { clientX: 1, clientY: 1 }); });
+const on = (k) => (fn) => (handlers[k] = handlers[k] || []).push(fn);
+window.tt = {
+  getSystemInfoSync: () => ({ windowWidth: W, windowHeight: H, pixelRatio: devicePixelRatio || 1, safeArea: { top: 44, bottom: H - 34 } }),
+  getMenuButtonBoundingClientRect: () => ({ bottom: 80 }),
+  createCanvas: () => { if (first) { first = false; return screenCanvas; } return document.createElement('canvas'); },
+  onTouchStart: on('start'), onTouchMove: on('move'), onTouchEnd: on('end'), onTouchCancel: on('cancel'),
+  onHide: (fn) => { window.__hide = fn; }, onShow: () => {},
+  vibrateShort() {}, vibrateLong() {}, getStorageSync: () => null, setStorageSync() {},
+};
+// 调试钩子：window.E 是引擎，window.R 是渲染器（Task 14 之后才有）
+const M = load('/js/main.js');
+window.E = M.engine; window.R = M.renderer;
+</script></body></html>
+```
+
+注意：键盘的空格冲刺用的是 `(1, 1)` 这个点，抬起时会产生一次 tap；在跑步段 tap 不对应任何按钮，所以没有副作用。
+
+- [ ] **Step 5: 浏览器里验证**
+
+用 `mcp__Claude_Browser__preview_start`（name: `retro-run-preview`）启动服务器，打开 `http://127.0.0.1:8766/.claude/preview/index.html`，用 `resize_window` 切到 `mobile` 预设后刷新，截图确认：
+- 三个红黄格子方块在转，地面上有颗粒状的硬阴影，边缘是明显的像素锯齿
+- 底部进度条在动（像素层每帧上传正常）
+- 顶部中文文字清晰不糊，帧率数字在更新（文字层正常）
+- 画面在安全区内居中，四周是黑边
+
+用 `read_console_messages`（onlyErrors）确认没有报错，然后把窗口恢复成 `desktop`。
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add js/platform.js js/renderer/presenter-three.js js/main.js
+git commit -m "spike: render three.js layers through douyin-style canvas"
+```
+
+- [ ] **Step 7: 关卡——请 Rainman 在抖音开发者工具和真机上验证**
+
+把工程导入抖音开发者工具，在模拟器里运行，再用"预览"扫码在真机上运行。请 Rainman 反馈：
+1. 模拟器和真机上画面是否和浏览器一致（方块、阴影、进度条、中文文字）
+2. 真机的帧率：中端机应当稳定在 50 以上，低端机至少 30
+3. 显示的 WebGL 版本（1 还是 2）
+4. 开发者工具"详情"里的代码包大小
+5. 控制台有没有报错
+
+把结论写进设计文档第 1 节末尾（"技术验证结论（日期）"），然后提交：
+
+```bash
+git add docs/superpowers/specs/2026-10-13-retro-run-design.md
+git commit -m "docs: record three.js spike findings on douyin"
+```
+
+**常见问题的处理方向**（遇到再用）：
+- 报 `addEventListener` / `document` 未定义：在 `platform.createScreenCanvas` 里补对应的空实现，或在 `game.js` 开头补最小的全局对象
+- 像素层或文字层是黑的：说明这个平台不支持把 2D 画布直接当纹理上传；改成在 `presenter-three.js` 里用 `getImageData` 取像素，再用 `THREE.DataTexture` 上传
+- 帧率太低：先关阴影（`shadowMap.enabled = false`），再看是不是每帧上传文字层导致的
+
+**如果问题解决不了，停在这里，和 Rainman 讨论是否退回 Canvas 2D 方案**（第 1 版的设计和计划在 git 历史里）。
+
+---
+
+### Task 4: 全局配置和午休时钟
 
 **Files:**
 - Create: `js/config.js`, `js/engine/clock.js`
@@ -284,7 +875,7 @@ git commit -m "chore: scaffold douyin native project with util helpers"
 **Interfaces:**
 - Consumes: `pad2` from `js/util.js`
 - Produces:
-  - `js/config.js`：见下方完整内容；后续任务用到 `maxDt`、`view`、`clock`、`home`、`leaveSec`、`run`、`score`、`road`
+  - `js/config.js`：见下方完整内容；后续任务用到 `maxDt`、`view`、`clock`、`home`、`leaveSec`、`run`、`score`、`iso`
   - `js/engine/clock.js` 导出 `class Clock`：`new Clock(config.clock)`；属性 `minutes`（游戏分钟，浮点）；`tick(sec) → 本次增加的游戏分钟`；`spend(min)`；getter `late`（`minutes >= bell`）、`left`（距 13:00 的剩余分钟，不小于 0）、`warn`（剩余不到 `warnMin`）；`label() → 'H:MM'`
 
 - [ ] **Step 1: 写失败的测试**
@@ -363,8 +954,13 @@ module.exports = {
   },
   // 得分 = 过瘾值 + 到校时剩余的整分钟 × perMinLeft（M1 试玩后再调，见设计文档 6.3）
   score: { perMinLeft: 5 },
-  // 伪 3D 道路（设计文档 4.1）：深度 d 米处一米 = focal / d 像素
-  road: { horizon: 120, focal: 48, camH: 8, camBack: 3, drawDist: 70, halfWidth: 4.5, bend: 0.02, curveLen: 40 },
+  // 斜 45° 像素 3D（设计文档 4.1、9.1）：正交摄像机视野高 viewH 米；学生朝 -z（屏幕左上方）跑
+  iso: {
+    viewH: 24, camOffset: [-12, 16, 12], camFollowX: 0.3, lookAhead: 3, jumpHeight: 1.4,
+    halfWidth: 4.5, walkWidth: 1.5,
+    propEvery: 7, propCount: 10, propBehind: 14, dashEvery: 4, dashCount: 20,
+    fogNear: 40, fogFar: 70,
+  },
 };
 ```
 
@@ -422,7 +1018,7 @@ git commit -m "feat: add global config and lunch-break clock"
 
 ---
 
-### Task 3: 周一数据和家里段逻辑
+### Task 5: 周一数据和家里段逻辑
 
 **Files:**
 - Create: `js/data/days.js`, `js/engine/home.js`
@@ -693,7 +1289,7 @@ git commit -m "feat: add monday data and home phase with temptations and shutdow
 
 ---
 
-### Task 4: 跑步者
+### Task 6: 跑步者
 
 **Files:**
 - Create: `js/engine/runner.js`
@@ -924,7 +1520,7 @@ git commit -m "feat: add runner with lanes, jump, slide, sprint and stamina"
 
 ---
 
-### Task 5: 阻碍数据和轨道
+### Task 7: 阻碍数据和轨道
 
 **Files:**
 - Create: `js/data/obstacles.js`, `js/engine/track.js`
@@ -934,7 +1530,7 @@ git commit -m "feat: add runner with lanes, jump, slide, sprint and stamina"
 - Consumes: `pickWeighted`、`createRng` from `js/util.js`；`day.track`
 - Produces:
   - `js/data/obstacles.js` 导出 `{ bikes, puddle, pole }`，每项 `{ name, width, clearBy: string[], penalty }`
-  - `js/engine/track.js` 导出 `class Track`：`new Track(day.track, obstacles, rng, { curveLen, lanes })`；属性 `length`、`items: [{ z, type, lanes: number[], done }]`、`curves`；方法 `curveAt(z) → number`、`crossed(from, to) → items`（`from < z <= to` 且 `!done`）
+  - `js/engine/track.js` 导出 `class Track`：`new Track(day.track, obstacles, rng, { lanes })`；属性 `length`、`items: [{ z, type, lanes: number[], done }]`；方法 `crossed(from, to) → items`（`from < z <= to` 且 `!done`）
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -949,7 +1545,7 @@ const DAYS = require('../js/data/days');
 const Track = require('../js/engine/track');
 
 const SPEC = DAYS[0].track;
-const make = (spec = SPEC, seed = 3) => new Track(spec, OBSTACLES, createRng(seed), { curveLen: 40, lanes: 3 });
+const make = (spec = SPEC, seed = 3) => new Track(spec, OBSTACLES, createRng(seed), { lanes: 3 });
 
 test('阻碍定义：自行车只能换道躲，积水能跳，晾衣杆占满整条路只能钻', () => {
   assert.deepEqual(OBSTACLES.bikes.clearBy, []);
@@ -960,7 +1556,6 @@ test('阻碍定义：自行车只能换道躲，积水能跳，晾衣杆占满�
 
 test('同一种子生成相同的轨道', () => {
   assert.deepEqual(make().items, make().items);
-  assert.deepEqual(make().curves, make().curves);
   assert.notDeepEqual(make(SPEC, 3).items, make(SPEC, 4).items);
 });
 
@@ -1000,14 +1595,6 @@ test('crossed 返回 (from, to] 区间内没处理过的物件', () => {
   assert.deepEqual(t.crossed(first.z - 1, first.z), []);
 });
 
-test('弯道：第一段是直的，弯曲度在 -1～1 之间，超出范围按直路', () => {
-  const t = make();
-  assert.equal(t.curveAt(0), 0);
-  assert.equal(t.curveAt(39), 0);
-  for (const c of t.curves) assert.ok(c >= -1 && c <= 1);
-  assert.equal(t.curveAt(-5), 0);
-  assert.equal(t.curveAt(1e6), 0);
-});
 ```
 
 - [ ] **Step 2: 运行，确认失败**
@@ -1039,15 +1626,13 @@ module.exports = {
 const { pickWeighted } = require('../util');
 
 /**
- * 轨道（设计文档 10.3）：把当天的 track 配置和随机种子展开成具体的物件和弯道
- * 只提供数据（第 z 米有什么、弯曲度多少），不知道怎么画
+ * 轨道（设计文档 10.3）：把当天的 track 配置和随机种子展开成具体的物件
+ * 只提供数据（第 z 米有什么），不知道怎么画；M1 是一条没有路口的直路
  */
 class Track {
-  constructor(spec, defs, rng, { curveLen = 40, lanes = 3 } = {}) {
+  constructor(spec, defs, rng, { lanes = 3 } = {}) {
     this.length = spec.length;
-    this.curveLen = curveLen;
     this.items = [];
-    this.curves = [];
     let z = spec.firstAt;
     while (z < spec.length - 20) {
       const type = pickWeighted(rng, spec.weights);
@@ -1058,13 +1643,6 @@ class Track {
       this.items.push({ z, type, lanes: covered, done: false });
       z += spec.gapMin + rng() * (spec.gapMax - spec.gapMin);
     }
-    const n = Math.ceil((spec.length + 200) / curveLen);
-    for (let i = 0; i < n; i++) this.curves.push(i === 0 ? 0 : Math.round((rng() * 2 - 1) * 10) / 10);
-  }
-
-  curveAt(z) {
-    const i = Math.floor(z / this.curveLen);
-    return i < 0 ? 0 : (this.curves[i] || 0);
   }
 
   crossed(from, to) {
@@ -1089,14 +1667,14 @@ git commit -m "feat: add obstacle definitions and seeded track generation"
 
 ---
 
-### Task 6: 单局引擎
+### Task 8: 单局引擎
 
 **Files:**
 - Create: `js/engine/game-engine.js`
 - Test: `test/game-engine.test.cjs`
 
 **Interfaces:**
-- Consumes: `createRng`；`Clock`（Task 2）；`Home`（Task 3）；`Runner`（Task 4）；`Track`（Task 5）；`config`；`obstacles`
+- Consumes: `createRng`；`Clock`（Task 4）；`Home`（Task 5）；`Runner`（Task 6）；`Track`（Task 7）；`config`；`obstacles`
 - Produces: `js/engine/game-engine.js` 导出 `{ GameEngine }`：
   - `new GameEngine({ config, obstacles })`；`on(ev, fn) → this`
   - 属性：`state`（`'ready' | 'home' | 'leaving' | 'run' | 'over'`）、`paused`、`clock`、`home`、`runner`、`track`、`result`、`stumbles`
@@ -1400,7 +1978,7 @@ class GameEngine {
     this.day = day;
     this.clock = new Clock(cfg.clock);
     this.home = new Home(cfg.home, day, rng, (ev, p) => this.emit(ev, p));
-    this.track = new Track(day.track, this.defs, rng, { curveLen: cfg.road.curveLen, lanes: cfg.run.lanes.length });
+    this.track = new Track(day.track, this.defs, rng, { lanes: cfg.run.lanes.length });
     this.runner = null;
     this.leaveT = 0;
     this.paused = false;
@@ -1541,7 +2119,7 @@ git commit -m "feat: add game engine tying home, leaving and run phases"
 
 ---
 
-### Task 7: 手势识别
+### Task 9: 手势识别
 
 **Files:**
 - Create: `js/input.js`
@@ -1732,7 +2310,7 @@ git commit -m "feat: add gesture tracker for swipe, hold and tap"
 
 ---
 
-### Task 8: 像素素材
+### Task 10: 像素素材
 
 **Files:**
 - Create: `js/art/palette.js`, `js/art/sprites/student.js`, `js/art/sprites/props.js`, `js/art/sprites/stone.js`, `js/art/sprites.js`
@@ -2126,24 +2704,24 @@ git commit -m "feat: add code-defined pixel sprites with cached rendering"
 
 ---
 
-### Task 9: 渲染器核心、标题页和结算页
+### Task 11: 渲染器核心、标题页和结算页
 
 **Files:**
 - Create: `js/renderer/pixel.js`, `js/renderer/renderer.js`, `js/renderer/scene-title.js`, `js/renderer/scene-result.js`
-- Create（占位，Task 10、11 会替换成完整实现）: `js/renderer/scene-home.js`, `js/renderer/scene-leaving.js`, `js/renderer/scene-run.js`
+- Create（占位，Task 12、13 会替换成完整实现）: `js/renderer/scene-home.js`, `js/renderer/scene-leaving.js`, `js/renderer/scene-run.js`
 - Test: `test/render-smoke.test.cjs`
 
 **Interfaces:**
-- Consumes: `config.view`；`Sprites`（Task 8）；`palette`
+- Consumes: `config.view`；`Sprites`（Task 10）；`palette`；presenter 接口（Task 3 的 `ThreePresenter.present`）
 - Produces:
   - `js/renderer/pixel.js` 导出 `{ rect(g, x, y, w, h, color), bar(g, x, y, w, h, p, fg, bg), digits(g, str, x, y, color, size) → 宽度, clockPlate(g, clock, now) }`
-  - `js/renderer/renderer.js` 导出 `class Renderer`：`new Renderer(ctx, W, H, safe, { dpr, createCanvas })`；属性 `w`、`h`（180、320）、`scale`（每个像素占多少 CSS 像素）、`ox`、`oy`、`g`（低分辨率画布的 context）、`sprites`、`scene`、`hits`；方法 `go(name, data)`、`text(str, x, y, opts)`、`hit(action, x, y, w, h)`、`hitTest(sx, sy) → { action } | null`、`onStumble({ penalty }, now)`、`draw(view, now, dt)`
-  - 每个场景：`class XxxScene`，`constructor(renderer)`，属性 `bg`（上屏时四周留边的颜色），方法 `draw(g, view, now, data)`
+  - `js/renderer/renderer.js` 导出 `class Renderer`：`new Renderer(W, H, safe, { dpr, createCanvas, presenter })`；属性 `w`、`h`（180、320）、`scale`（每个像素占多少 CSS 像素）、`ox`、`oy`、`g`（像素画布的 context）、`buf`（像素画布）、`textCanvas`、`sprites`、`scene`、`sceneData`、`hits`、`texts`、`world`（本帧的 3D 世界，场景可以设置）；方法 `go(name, data)`、`text(str, x, y, opts)`、`hit(action, x, y, w, h)`、`hitTest(sx, sy) → { action } | null`、`onStumble({ penalty }, now)`、`draw(view, now)`
+  - 每个场景：`class XxxScene`，`constructor(renderer)`，属性 `bg`（上屏时四周留边的颜色），方法 `draw(g, view, now, data)`；像素画布每帧先清成透明再交给场景画
   - 按钮 action：标题页 `'start'`；结算页 `'restart'`、`'title'`
 
 - [ ] **Step 1: 写失败的测试**
 
-`test/render-smoke.test.cjs`（这一步先写标题页、结算页和缩放部分；Task 10、11 会往这个文件追加测试）:
+`test/render-smoke.test.cjs`（这一步先写标题页、结算页、缩放和上屏部分；Task 12、13 会往这个文件追加测试）:
 
 ```js
 const test = require('node:test');
@@ -2159,8 +2737,15 @@ function fakeCtx() {
   });
 }
 const fakeCanvas = (w, h) => ({ width: w, height: h, getContext: () => fakeCtx() });
+// 假的 presenter：只记录每帧交给它的内容
+const fakePresenter = () => ({ frames: [], present(f) { this.frames.push(f); } });
 const SAFE = { top: 80, bottom: 34 };
-const make = (W = 375, H = 812, dpr = 2) => new Renderer(fakeCtx(), W, H, SAFE, { dpr, createCanvas: fakeCanvas });
+const make = (W = 375, H = 812, dpr = 2) => {
+  const presenter = fakePresenter();
+  const r = new Renderer(W, H, SAFE, { dpr, createCanvas: fakeCanvas, presenter });
+  r.presenter = presenter;
+  return r;
+};
 // 低分辨率按钮的中心 → 屏幕坐标
 const center = (r, b) => [r.ox + (b.x + b.w / 2) * r.scale, r.oy + (b.y + b.h / 2) * r.scale];
 const button = (r, action) => r.hits.find((b) => b.action === action);
@@ -2179,12 +2764,26 @@ test('不同屏幕：按设备像素整数倍放大，居中且在安全区内',
 test('标题页可绘制，开始按钮的屏幕坐标能点中；按钮外点不中', () => {
   for (const [W, H, dpr] of [[375, 812, 2], [768, 1024, 2]]) {
     const r = make(W, H, dpr);
-    r.draw({ state: 'ready' }, 0, 1 / 60);
+    r.draw({ state: 'ready' }, 0);
     const b = button(r, 'start');
     assert.ok(b);
     assert.deepEqual(r.hitTest(...center(r, b)), { action: 'start' });
     assert.equal(r.hitTest(r.ox + 1, r.oy + 1), null);
   }
+});
+
+test('每帧交给 presenter：像素画布、文字画布、布局；文字没变就不重画文字层', () => {
+  const r = make();
+  r.draw({ state: 'ready' }, 0);
+  r.draw({ state: 'ready' }, 0);
+  const [a, b] = r.presenter.frames;
+  assert.equal(a.pixel, r.buf);
+  assert.equal(a.text, r.textCanvas);
+  assert.equal(a.world, null);
+  assert.deepEqual(a.layout, { ox: r.ox, oy: r.oy, w: r.w * r.scale, h: r.h * r.scale });
+  assert.deepEqual(a.shake, { x: 0, y: 0 });
+  assert.equal(a.textDirty, true);
+  assert.equal(b.textDirty, false);
 });
 
 test('结算页三种结局都能绘制，有再来一次和回标题两个按钮', () => {
@@ -2196,17 +2795,18 @@ test('结算页三种结局都能绘制，有再来一次和回标题两个按�
   ];
   for (const res of results) {
     r.go('result', res);
-    r.draw({ state: 'over' }, 1000, 1 / 60);
+    r.draw({ state: 'over' }, 1000);
     assert.ok(button(r, 'restart'));
     assert.ok(button(r, 'title'));
   }
 });
 
-test('摔倒浮字和抖动不会出错；暂停时画遮罩', () => {
+test('摔倒时抖动、出现浮字；暂停时画遮罩', () => {
   const r = make();
   r.onStumble({ penalty: 0.8 }, 0);
-  r.draw({ state: 'ready' }, 100, 1 / 60);
-  r.draw({ state: 'ready', paused: true }, 2000, 1 / 60);
+  r.draw({ state: 'ready' }, 100);
+  assert.ok(r.texts.some((t) => t.str === '-0.8 分钟'));
+  r.draw({ state: 'ready', paused: true }, 2000);
   assert.ok(r.texts.some((t) => t.str.includes('继续')));
 });
 ```
@@ -2293,21 +2893,24 @@ const SHAKE_MS = 300;
 const FLOAT_MS = 900;
 
 /**
- * Canvas 渲染器（设计文档 9、10.2）
- * 所有画面先画到 180×320 的低分辨率画布上，再按设备像素整数倍放大、在安全区内居中上屏；
- * 中文文字在 180×320 上会糊，所以单独画在高清层（坐标仍用低分辨率坐标）
+ * 渲染器（设计文档 9、10.3）
+ * 2D 画面画到 180×320 的像素画布上；中文在像素画布上会糊，所以单独画到屏幕分辨率的文字画布上（内容变了才重画）；
+ * 跑步场景另外通过 this.world 提供 3D 世界。三层交给 presenter 合成上屏
  * 每帧根据引擎快照绘制，不修改游戏状态；hitTest 只把坐标翻译成 { action }
  */
 class Renderer {
-  constructor(ctx, W, H, safe, { dpr = 1, createCanvas }) {
-    this.ctx = ctx;
+  constructor(W, H, safe, { dpr = 1, createCanvas, presenter }) {
     this.W = W;
     this.H = H;
+    this.dpr = dpr;
+    this.presenter = presenter;
     this.w = CONFIG.view.w;
     this.h = CONFIG.view.h;
     this.buf = createCanvas(this.w, this.h);
     this.g = this.buf.getContext('2d');
     this.g.imageSmoothingEnabled = false;
+    this.textCanvas = createCanvas(Math.round(W * dpr), Math.round(H * dpr));
+    this.tg = this.textCanvas.getContext('2d');
     const availH = H - safe.top - safe.bottom;
     const k = Math.max(1, Math.floor(Math.min((W * dpr) / this.w, (availH * dpr) / this.h)));
     this.scale = k / dpr;
@@ -2317,6 +2920,8 @@ class Renderer {
     this.texts = [];
     this.hits = [];
     this.floats = [];
+    this.world = null;
+    this.textKey = null;
     this.shakeAt = -Infinity;
     this.scenes = {
       title: new TitleScene(this),
@@ -2334,7 +2939,7 @@ class Renderer {
     this.floats = [];
   }
 
-  // 文字：坐标是低分辨率坐标，size 是低分辨率像素高度
+  // 文字：坐标是像素画布坐标，size 是像素画布上的字高
   text(str, x, y, { size = 8, color = P.ink, align = 'center' } = {}) {
     this.texts.push({ str: String(str), x, y, size, color, align });
   }
@@ -2356,8 +2961,10 @@ class Renderer {
   draw(view, now) {
     this.texts = [];
     this.hits = [];
+    this.world = null;
     const scene = this.scenes[this.scene];
     const g = this.g;
+    g.clearRect(0, 0, this.w, this.h);
     scene.draw(g, view, now, this.sceneData);
     this.floats = this.floats.filter((f) => now - f.at < FLOAT_MS);
     for (const f of this.floats) {
@@ -2371,29 +2978,40 @@ class Renderer {
       this.text('已暂停', this.w / 2, 150, { size: 12, color: P.white });
       this.text('点屏幕继续', this.w / 2, 170, { size: 8, color: P.white });
     }
-    this.present(scene.bg || P.black, now);
-  }
-
-  present(bg, now) {
-    const ctx = this.ctx;
-    const s = this.scale;
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, this.W, this.H);
     let sx = 0;
     let sy = 0;
     if (now - this.shakeAt < SHAKE_MS) {
-      sx = Math.round((Math.random() * 2 - 1) * 2) * s;
-      sy = Math.round((Math.random() * 2 - 1) * 2) * s;
+      sx = Math.round((Math.random() * 2 - 1) * 2) * this.scale;
+      sy = Math.round((Math.random() * 2 - 1) * 2) * this.scale;
     }
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.buf, this.ox + sx, this.oy + sy, this.w * s, this.h * s);
-    ctx.textBaseline = 'middle';
+    const textDirty = this.paintTexts(sx, sy);
+    this.presenter.present({
+      world: this.world,
+      pixel: this.buf,
+      text: this.textCanvas,
+      textDirty,
+      layout: { ox: this.ox, oy: this.oy, w: this.w * this.scale, h: this.h * this.scale },
+      shake: { x: sx, y: sy },
+      bg: scene.bg || P.black,
+    });
+  }
+
+  // 文字层只在内容（含抖动偏移）变化时重画，返回是否重画了
+  paintTexts(sx, sy) {
+    const key = `${sx},${sy}|${this.texts.map((t) => `${t.str}/${t.x}/${t.y}/${t.size}/${t.color}/${t.align}`).join('|')}`;
+    if (key === this.textKey) return false;
+    this.textKey = key;
+    const tg = this.tg;
+    const s = this.scale * this.dpr;
+    tg.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+    tg.textBaseline = 'middle';
     for (const t of this.texts) {
-      ctx.font = `bold ${Math.round(t.size * s)}px "PingFang SC", "Microsoft YaHei", sans-serif`;
-      ctx.fillStyle = t.color;
-      ctx.textAlign = t.align;
-      ctx.fillText(t.str, this.ox + sx + t.x * s, this.oy + sy + t.y * s);
+      tg.font = `bold ${Math.round(t.size * s)}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      tg.fillStyle = t.color;
+      tg.textAlign = t.align;
+      tg.fillText(t.str, (this.ox + sx + t.x * this.scale) * this.dpr, (this.oy + sy + t.y * this.scale) * this.dpr);
     }
+    return true;
   }
 }
 
@@ -2478,7 +3096,7 @@ class ResultScene {
 module.exports = ResultScene;
 ```
 
-占位场景（Task 10、11 替换）。`js/renderer/scene-home.js`、`js/renderer/scene-leaving.js`、`js/renderer/scene-run.js` 三个文件内容相同，只是类名不同（分别为 `HomeScene`、`LeavingScene`、`RunScene`）:
+占位场景（Task 12、13 替换）。`js/renderer/scene-home.js`、`js/renderer/scene-leaving.js`、`js/renderer/scene-run.js` 三个文件内容相同，只是类名不同（分别为 `HomeScene`、`LeavingScene`、`RunScene`）:
 
 ```js
 const P = require('../art/palette');
@@ -2499,25 +3117,25 @@ module.exports = HomeScene;
 - [ ] **Step 4: 运行，确认通过**
 
 Run: `node --test test/render-smoke.test.cjs`
-Expected: PASS（4 个测试）
+Expected: PASS（5 个测试）
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add js/renderer test/render-smoke.test.cjs
-git commit -m "feat: add pixel renderer core with title and result scenes"
+git commit -m "feat: add layered renderer core with title and result scenes"
 ```
 
 ---
 
-### Task 10: 家里场景（CRT 电脑）
+### Task 12: 家里场景（CRT 电脑）
 
 **Files:**
 - Modify: `js/renderer/scene-home.js`（整个替换）
 - Test: `test/render-smoke.test.cjs`（追加）
 
 **Interfaces:**
-- Consumes: `view.clock`、`view.home`（Task 6）；`rect`、`bar`、`clockPlate`（Task 9）；素材 `dino`、`beast`
+- Consumes: `view.clock`、`view.home`（Task 8）；`rect`、`bar`、`clockPlate`（Task 11）；素材 `dino`、`beast`
 - Produces: 按钮 action：`'power'`（仅 `playing`）、`'confirm'` 和 `'cancel'`（仅 `confirm`）、`'endTask'`（仅 `hung`）
 
 - [ ] **Step 1: 写失败的测试**
@@ -2725,45 +3343,88 @@ git commit -m "feat: draw first-person home scene with crt and shutdown dialogs"
 
 ---
 
-### Task 11: 伪 3D 道路、出门转场和跑步场景
+### Task 13: 跑步段的 3D 场景、出门转场和跑步场景
 
 **Files:**
-- Create: `js/renderer/road.js`
-- Modify: `js/renderer/scene-leaving.js`、`js/renderer/scene-run.js`（整个替换）
+- Create: `js/renderer/world3d.js`
+- Modify: `js/renderer/scene-leaving.js`、`js/renderer/scene-run.js`（整个替换占位）
 - Test: `test/render-smoke.test.cjs`（追加）
 
 **Interfaces:**
-- Consumes: `config.road`、`config.run.lanes`；`view.leave`、`view.run`、`view.track`、`view.clock`（Task 6）；`track.curveAt(z)`、`track.items`、`track.length`（Task 5）；`rect`、`bar`、`clockPlate`
-- Produces: `js/renderer/road.js` 导出 `class Road`：`new Road(config.road, w, h)`；`prepare(track, camZ)`；`bend(d) → 米`；`project(worldX, d) → { x, y, ppm }`；`drawGround(g)`
+- Consumes: `js/libs/three.js`（Task 2）；`config.iso`、`config.run.lanes`、`config.view`（Task 4）；`Sprites`（Task 10）；`view.leave`、`view.run`、`view.track`、`view.clock`（Task 8）；`track.items`、`track.length`（Task 7）；`rect`、`bar`、`clockPlate`（Task 11）；渲染器的 `r.world`（Task 11）
+- Produces: `js/renderer/world3d.js` 导出 `class World3D`：`new World3D(sprites, config?)`；属性 `scene`、`camera`、`kid`（学生纸片）、`items`（放阻碍和校门的 Group）、`props`（循环使用的店铺和树）、`dashes`、`present`（`{ scene, camera, w, h }`，交给 presenter）；方法 `tex(name, frame) → CanvasTexture`（按名字和帧缓存）、`setTrack(track)`、`update(run, now)`
 
 - [ ] **Step 1: 写失败的测试**
 
 在 `test/render-smoke.test.cjs` 末尾追加:
 
 ```js
-const Road = require('../js/renderer/road');
+const World3D = require('../js/renderer/world3d');
+const { Sprites } = require('../js/art/sprites');
+const Track = require('../js/engine/track');
+const { createRng } = require('../js/util');
 
-test('道路投影：越远越小、越靠近地平线；直路上居中', () => {
-  const road = new Road(CONFIG.road, 180, 320);
-  road.prepare({ curveAt: () => 0 }, 0);
-  const near = road.project(0, 3);
-  const far = road.project(0, 30);
-  assert.equal(near.x, 90);
-  assert.ok(near.y > far.y && far.y > CONFIG.road.horizon);
-  assert.ok(near.ppm > far.ppm);
-  assert.ok(road.project(3, 3).x > near.x);
+const newWorld = () => new World3D(new Sprites(fakeCanvas));
+const runView = (o) => Object.assign({
+  z: 0, x: 0, lane: 1, action: null, actionProgress: 0, stamina: 100, staminaMax: 100,
+  winded: false, stumble: false, sprinting: false,
+}, o);
+const trackOf = (seed, spec = DAYS[0].track) => new Track(spec, OBSTACLES, createRng(seed), { lanes: 3 });
+const ISO = CONFIG.iso;
+
+test('3D 场景：每个阻碍一个对象，外加校门；换轨道时旧对象被清掉', () => {
+  const w = newWorld();
+  const t1 = trackOf(1);
+  w.setTrack(t1);
+  assert.equal(w.items.children.length, t1.items.length + 1);
+  const t2 = trackOf(2, Object.assign({}, DAYS[0].track, { length: 100 }));
+  w.setTrack(t2);
+  assert.equal(w.items.children.length, t2.items.length + 1);
 });
 
-test('道路弯道：弯曲度为正时远处往右偏，偏移随深度连续增大', () => {
-  const road = new Road(CONFIG.road, 180, 320);
-  road.prepare({ curveAt: () => 1 }, 0);
-  assert.equal(road.bend(0), 0);
-  assert.ok(road.bend(10) > 0);
-  assert.ok(road.bend(40) > road.bend(10));
-  assert.ok(Math.abs(road.bend(10.5) - (road.bend(10) + road.bend(11)) / 2) < 0.05);
+test('学生和摄像机跟着跑步者：轨道第 z 米在 three.js 的 -z', () => {
+  const w = newWorld();
+  w.setTrack(trackOf(1));
+  w.update(runView({ z: 100, x: 3 }), 0);
+  assert.equal(w.kid.position.x, 3);
+  assert.equal(w.kid.position.y, 0);
+  assert.equal(w.kid.position.z, -100);
+  const o = ISO.camOffset;
+  assert.ok(Math.abs(w.camera.position.x - (3 * ISO.camFollowX + o[0])) < 1e-9);
+  assert.equal(w.camera.position.y, o[1]);
+  assert.ok(Math.abs(w.camera.position.z - (-100 + o[2])) < 1e-9);
 });
 
-test('出门转场和跑步：跳、钻、冲刺、摔倒、喘气、看到校门、迟到警告都能绘制', () => {
+test('跳到一半离地最高；钻和摔倒换成对应的纹理；跑步两帧交替', () => {
+  const w = newWorld();
+  w.setTrack(trackOf(1));
+  w.update(runView({ action: 'jump', actionProgress: 0.5 }), 0);
+  assert.ok(Math.abs(w.kid.position.y - ISO.jumpHeight) < 1e-9);
+  w.update(runView({ action: 'slide', actionProgress: 0.5 }), 0);
+  assert.equal(w.kid.material.map, w.tex('student_slide'));
+  w.update(runView({ stumble: true }), 0);
+  assert.equal(w.kid.material.map, w.tex('student_fall'));
+  w.update(runView(), 0);
+  const a = w.kid.material.map;
+  w.update(runView(), 140);
+  assert.notEqual(w.kid.material.map, a);
+  assert.equal(w.tex('student_run', 2), w.tex('student_run', 0));
+});
+
+test('街景循环使用：跑到哪里，店铺和树都在学生附近的固定窗口里', () => {
+  const w = newWorld();
+  w.setTrack(trackOf(1));
+  for (const z of [0, 50, 333, 1000]) {
+    w.update(runView({ z }), 0);
+    const top = -z + ISO.propBehind;
+    for (const p of w.props) {
+      assert.ok(p.position.z <= top + 1e-9, `z=${z}`);
+      assert.ok(p.position.z > top - ISO.propEvery * ISO.propCount - 1e-9, `z=${z}`);
+    }
+  }
+});
+
+test('出门转场和跑步：跳、钻、冲刺、摔倒、喘气、看到校门、迟到警告都能绘制，跑步时交出 3D 世界', () => {
   const r = make();
   const e = newEngine();
   e.start(DAYS[0]);
@@ -2779,7 +3440,7 @@ test('出门转场和跑步：跳、钻、冲刺、摔倒、喘气、看到校�
   while (e.state === 'leaving') {
     e.update(1 / 60);
     now += 16;
-    r.draw(e.view(), now, 1 / 60);
+    r.draw(e.view(), now);
   }
   assert.equal(e.state, 'run');
   r.go('run');
@@ -2789,94 +3450,246 @@ test('出门转场和跑步：跳、钻、冲刺、摔倒、喘气、看到校�
     if (i === 600) e.clock.minutes = 12 * 60 + 58;
     e.update(1 / 60);
     now += 16;
-    r.draw(e.view(), now, 1 / 60);
+    r.draw(e.view(), now);
   }
   assert.equal(e.state, 'over');
   assert.ok(r.texts.some((t) => t.str.includes('体力')));
+  const last = r.presenter.frames[r.presenter.frames.length - 1];
+  assert.ok(last.world && last.world.scene && last.world.camera);
+  assert.equal(last.world.w, 180);
 });
 ```
 
 - [ ] **Step 2: 运行，确认失败**
 
 Run: `node --test test/render-smoke.test.cjs`
-Expected: FAIL（Cannot find module '../js/renderer/road'）
+Expected: FAIL（Cannot find module '../js/renderer/world3d'）
 
 - [ ] **Step 3: 写实现**
 
-`js/renderer/road.js`:
+`js/renderer/world3d.js`:
 
 ```js
+const THREE = require('../libs/three');
+const CONFIG = require('../config');
 const P = require('../art/palette');
-const { rect } = require('./pixel');
 
 /**
- * 伪 3D 道路投影（设计文档 4.1、9）
- * 相机在跑步者身后 camBack 米、高 camH 米；深度 d 米处，一米宽 = focal / d 像素，地面在 horizon + camH × focal / d
- * 弯道：横向偏移是"弯曲度 × 深度"沿深度的积分，所以跑过弯道分段时画面是连续的
+ * 跑步段的 3D 场景（设计文档 4.1、9.1）：只创建 three.js 场景对象，不碰 WebGL
+ * 斜 45° 正交摄像机跟着学生走，学生朝屏幕左上方跑；轨道第 z 米对应 three.js 的 -z
+ * 店铺放在右边（正面朝路、对着镜头），树放在左边；街景和车道线是固定数量的对象，跑过去就挪到前面循环使用
  */
-class Road {
-  constructor(cfg, w, h) {
-    this.c = cfg;
-    this.w = w;
-    this.h = h;
-    this.offs = [0];
-    this.camZ = 0;
+class World3D {
+  constructor(sprites, cfg = CONFIG) {
+    const iso = cfg.iso;
+    this.sp = sprites;
+    this.cfg = cfg;
+    this.iso = iso;
+    this.texCache = {};
+    const s = new THREE.Scene();
+    s.background = new THREE.Color(P.sky);
+    s.fog = new THREE.Fog(P.haze, iso.fogNear, iso.fogFar);
+    this.scene = s;
+    const a = cfg.view.w / cfg.view.h;
+    this.camera = new THREE.OrthographicCamera((-iso.viewH * a) / 2, (iso.viewH * a) / 2, iso.viewH / 2, -iso.viewH / 2, 0.1, 200);
+    s.add(new THREE.HemisphereLight('#fff6e0', P.grass, 0.8));
+    const sun = new THREE.DirectionalLight('#fff1d0', 0.8);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(512, 512);
+    Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 1, far: 60 });
+    s.add(sun);
+    s.add(sun.target);
+    this.sun = sun;
+    this.buildGround();
+    this.buildDashes();
+    this.buildProps();
+    this.items = new THREE.Group();
+    s.add(this.items);
+    this.kid = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex('student_run') }));
+    this.kid.center.set(0.5, 0);
+    this.kid.scale.set(1.2, 1.8, 1);
+    s.add(this.kid);
+    this.blob = new THREE.Mesh(new THREE.CircleGeometry(0.5, 8), new THREE.MeshBasicMaterial({ color: P.black, transparent: true, opacity: 0.25 }));
+    this.blob.rotation.x = -Math.PI / 2;
+    s.add(this.blob);
+    this.present = { scene: s, camera: this.camera, w: cfg.view.w, h: cfg.view.h };
   }
 
-  prepare(track, camZ) {
-    const c = this.c;
-    this.camZ = camZ;
-    const offs = [0];
-    let acc = 0;
-    for (let i = 1; i <= c.drawDist + 1; i++) {
-      acc += track.curveAt(camZ + i - 0.5) * (i - 0.5) * c.bend;
-      offs.push(acc);
+  // 像素精灵 → 纹理（最近邻、无 mipmap），按名字和帧缓存
+  tex(name, frame = 0) {
+    const f = frame % this.sp.frames(name);
+    const key = `${name}:${f}`;
+    if (!this.texCache[key]) {
+      const t = new THREE.CanvasTexture(this.sp.get(name, f).img);
+      t.minFilter = THREE.NearestFilter;
+      t.magFilter = THREE.NearestFilter;
+      t.generateMipmaps = false;
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.texCache[key] = t;
     }
-    this.offs = offs;
+    return this.texCache[key];
   }
 
-  bend(d) {
-    const last = this.offs.length - 1;
-    if (d <= 0) return 0;
-    if (d >= last) return this.offs[last];
-    const i = Math.floor(d);
-    return this.offs[i] + (this.offs[i + 1] - this.offs[i]) * (d - i);
+  lambert(color) { return new THREE.MeshLambertMaterial({ color }); }
+
+  box(w, h, d, mat, x, y, z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
   }
 
-  project(worldX, d) {
-    const c = this.c;
-    const ppm = c.focal / d;
-    return { x: this.w / 2 + (worldX + this.bend(d)) * ppm, y: c.horizon + (c.camH * c.focal) / d, ppm };
+  // 地面、路面、人行道：一组很长的平板，跟着学生一起平移（颜色均匀，看不出在动）
+  buildGround() {
+    const iso = this.iso;
+    const hw = iso.halfWidth;
+    this.ground = new THREE.Group();
+    const flat = (w, color, x, y) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 200), this.lambert(color));
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, y, 0);
+      m.receiveShadow = true;
+      this.ground.add(m);
+    };
+    flat(80, P.grass, 0, 0);
+    flat(hw * 2, P.road, 0, 0.01);
+    flat(iso.walkWidth, P.walk, -(hw + iso.walkWidth / 2), 0.02);
+    flat(iso.walkWidth, P.walk, hw + iso.walkWidth / 2, 0.02);
+    this.scene.add(this.ground);
   }
 
-  // 逐行画地面：草地、人行道、路面和车道线，按世界距离交替深浅，跑起来有速度感
-  drawGround(g) {
-    const c = this.c;
-    for (let y = c.horizon + 1; y < this.h; y++) {
-      const d = (c.camH * c.focal) / (y - c.horizon);
-      if (d > c.drawDist) {
-        rect(g, 0, y, this.w, 1, P.haze);
-        continue;
-      }
-      const z = this.camZ + d;
-      const alt = Math.floor(z / 3) % 2 === 0;
-      const ppm = c.focal / d;
-      const cx = this.w / 2 + this.bend(d) * ppm;
-      rect(g, 0, y, this.w, 1, alt ? P.grass : P.grass2);
-      const walk = (c.halfWidth + 1.5) * ppm;
-      rect(g, cx - walk, y, walk * 2, 1, alt ? P.walk : P.walk2);
-      const half = c.halfWidth * ppm;
-      rect(g, cx - half, y, half * 2, 1, alt ? P.road : P.road2);
-      if (Math.floor(z / 2) % 2 === 0) {
-        const lw = Math.max(1, 0.15 * ppm);
-        rect(g, cx - 1.5 * ppm - lw / 2, y, lw, 1, P.line);
-        rect(g, cx + 1.5 * ppm - lw / 2, y, lw, 1, P.line);
+  // 车道线：真的往后退，提供速度感
+  buildDashes() {
+    const iso = this.iso;
+    const geo = new THREE.PlaneGeometry(0.2, 1.2);
+    const mat = this.lambert(P.line);
+    this.dashes = [];
+    for (let i = 0; i < iso.dashCount; i++) {
+      for (const x of [-1.5, 1.5]) {
+        const d = new THREE.Mesh(geo, mat);
+        d.rotation.x = -Math.PI / 2;
+        d.position.set(x, 0.03, iso.propBehind - (i + 0.5) * iso.dashEvery);
+        this.scene.add(d);
+        this.dashes.push(d);
       }
     }
+  }
+
+  buildProps() {
+    const iso = this.iso;
+    const edge = iso.halfWidth + iso.walkWidth;
+    this.props = [];
+    for (let i = 0; i < iso.propCount; i++) {
+      const shop = this.shop(i % 2 ? 'shop_red' : 'shop_blue');
+      shop.position.set(edge + 2, 0, iso.propBehind - (i + 0.5) * iso.propEvery);
+      const tree = this.tree();
+      tree.position.set(-(edge + 1.5), 0, iso.propBehind - i * iso.propEvery);
+      this.scene.add(shop, tree);
+      this.props.push(shop, tree);
+    }
+  }
+
+  // 店铺：-x 面朝路、对着镜头，贴店面纹理，宽高比和像素图一致
+  shop(name) {
+    const g = new THREE.Group();
+    const s = this.sp.get(name);
+    const len = 6.5;
+    const h = (len * s.h) / s.w;
+    const wall = this.lambert(P.wall);
+    const front = new THREE.MeshLambertMaterial({ map: this.tex(name) });
+    g.add(this.box(4, h, len, [wall, front, this.lambert(P.wall2), wall, wall, wall], 0, h / 2, 0));
+    g.add(this.box(4.4, 0.4, len + 0.4, this.lambert(P.desk2), 0, h + 0.2, 0));
+    return g;
+  }
+
+  tree() {
+    const g = new THREE.Group();
+    g.add(this.box(0.5, 1.6, 0.5, this.lambert(P.desk2), 0, 0.8, 0));
+    g.add(this.box(2, 2, 2, this.lambert(P.bag), 0, 2.4, 0));
+    g.add(this.box(1.2, 1.2, 1.2, this.lambert(P.grass2), 0, 3.8, 0));
+    return g;
+  }
+
+  // 每种阻碍一个 Group，局部坐标里摆好，外面只设位置
+  item(type) {
+    const g = new THREE.Group();
+    if (type === 'bikes') {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex('bike') }));
+      sp.center.set(0.5, 0);
+      sp.scale.set(1.1, 1.8, 1);
+      g.add(sp);
+    } else if (type === 'puddle') {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.9),
+        new THREE.MeshLambertMaterial({ map: this.tex('puddle'), transparent: true, alphaTest: 0.5 }));
+      m.rotation.x = -Math.PI / 2;
+      m.position.y = 0.04;
+      g.add(m);
+    } else {
+      // 晾衣杆：两根柱子、横杆高 1.55 米、挂着衣服，只能钻过去
+      const hw = this.iso.halfWidth + 0.3;
+      for (const x of [-hw, hw]) g.add(this.box(0.2, 1.6, 0.2, this.lambert(P.desk2), x, 0.8, 0));
+      g.add(this.box(hw * 2, 0.08, 0.08, this.lambert(P.ink), 0, 1.55, 0));
+      for (let c = 0; c < 5; c++) g.add(this.box(0.9, 0.6, 0.05, this.lambert(c % 2 ? P.red : P.shirt), -3.6 + c * 1.8, 1.2, 0));
+    }
+    return g;
+  }
+
+  // 换一条轨道（新开一局）：清掉旧的阻碍和校门，按新轨道重建
+  setTrack(track) {
+    for (const c of this.items.children.slice()) {
+      this.items.remove(c);
+      c.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material && !o.material.map) o.material.dispose();
+      });
+    }
+    const lanes = this.cfg.run.lanes;
+    for (const it of track.items) {
+      const obj = this.item(it.type);
+      obj.position.set(it.type === 'pole' ? 0 : lanes[it.lanes[0]], 0, -it.z);
+      this.items.add(obj);
+    }
+    const gate = new THREE.Mesh(new THREE.PlaneGeometry(10, 6),
+      new THREE.MeshLambertMaterial({ map: this.tex('gate'), transparent: true, alphaTest: 0.5 }));
+    gate.position.set(0, 3, -track.length);
+    this.items.add(gate);
+  }
+
+  update(run, now) {
+    const iso = this.iso;
+    const zp = -run.z;
+    let name = 'student_run';
+    let frame = Math.floor(now / (run.sprinting ? 90 : 140));
+    let y = 0;
+    if (run.stumble) {
+      name = 'student_fall';
+      frame = 0;
+    } else if (run.action === 'jump') {
+      name = 'student_jump';
+      frame = 0;
+      y = Math.sin(Math.PI * run.actionProgress) * iso.jumpHeight;
+    } else if (run.action === 'slide') {
+      name = 'student_slide';
+      frame = 0;
+    }
+    this.kid.material.map = this.tex(name, frame);
+    this.kid.position.set(run.x, y, zp);
+    this.blob.position.set(run.x, 0.04, zp);
+    this.ground.position.z = zp - 60;
+    const top = zp + iso.propBehind;
+    for (const p of this.props) while (p.position.z > top) p.position.z -= iso.propEvery * iso.propCount;
+    for (const d of this.dashes) while (d.position.z > top) d.position.z -= iso.dashEvery * iso.dashCount;
+    const o = iso.camOffset;
+    const cx = run.x * iso.camFollowX;
+    this.camera.position.set(cx + o[0], o[1], zp + o[2]);
+    this.camera.lookAt(cx, 0, zp - iso.lookAhead);
+    this.sun.position.set(cx - 8, 16, zp + 6);
+    this.sun.target.position.set(cx, 0, zp - 4);
   }
 }
 
-module.exports = Road;
+module.exports = World3D;
 ```
 
 `js/renderer/scene-leaving.js`:
@@ -2919,134 +3732,31 @@ module.exports = LeavingScene;
 `js/renderer/scene-run.js`:
 
 ```js
-const CONFIG = require('../config');
 const P = require('../art/palette');
-const Road = require('./road');
+const World3D = require('./world3d');
 const { rect, bar, clockPlate } = require('./pixel');
 
-const NEAR = 0.8; // 比这更近的物件不画（已经在镜头后面了）
-const SCENERY_EVERY = 12; // 每 12 米一处街景
-
 /**
- * 跑步段（设计文档 4.1）：镜头在学生背后斜上方，伪 3D 街道迎面而来
- * 物件、街景、校门和学生按深度从远到近画
+ * 跑步段（设计文档 4.1）：3D 世界交给 World3D，这里只在像素画布上画 HUD
+ * World3D 第一次进入跑步段时才创建；轨道换了（重开一局）就重建阻碍
  */
 class RunScene {
   constructor(r) {
     this.r = r;
     this.bg = P.sky;
-    this.road = new Road(CONFIG.road, r.w, r.h);
+    this.world = null;
+    this.track = null;
   }
 
   draw(g, view, now) {
-    const c = CONFIG.road;
-    const run = view.run;
-    const track = view.track;
-    const camZ = run.z - c.camBack;
-    this.road.prepare(track, camZ);
-    this.sky(g);
-    this.road.drawGround(g);
-    const objs = [];
-    for (let i = Math.max(0, Math.floor((camZ + NEAR) / SCENERY_EVERY)); i * SCENERY_EVERY < camZ + c.drawDist; i++) {
-      const d = i * SCENERY_EVERY - camZ;
-      if (d < NEAR) continue;
-      objs.push({ d, kind: 'scenery', i });
+    if (!this.world) this.world = new World3D(this.r.sprites);
+    if (view.track !== this.track) {
+      this.world.setTrack(view.track);
+      this.track = view.track;
     }
-    for (const it of track.items) {
-      const d = it.z - camZ;
-      if (d >= NEAR && d <= c.drawDist) objs.push({ d, kind: 'item', it });
-    }
-    const gd = track.length - camZ;
-    if (gd >= NEAR && gd <= c.drawDist) objs.push({ d: gd, kind: 'gate' });
-    objs.push({ d: c.camBack, kind: 'player' });
-    objs.sort((a, b) => b.d - a.d);
-    for (const o of objs) this.drawObj(g, o, run, now);
+    this.world.update(view.run, now);
+    this.r.world = this.world.present;
     this.hud(g, view, now);
-  }
-
-  sky(g) {
-    const c = CONFIG.road;
-    rect(g, 0, 0, this.r.w, c.horizon + 1, P.sky);
-    const shift = this.road.bend(c.drawDist) * (c.focal / c.drawDist) * 0.5; // 远处楼群跟着弯道偏一点
-    for (let i = 0; i < 12; i++) {
-      const bh = 14 + ((i * 37) % 22);
-      rect(g, ((i * 23 + 7) % 200) - 10 + shift, c.horizon - bh, 18, bh, P.far);
-    }
-  }
-
-  // 精灵在世界里高 worldH 米时的缩放倍数
-  fit(name, worldH, ppm) { return (worldH * ppm) / this.r.sprites.get(name).h; }
-
-  drawObj(g, o, run, now) {
-    const sp = this.r.sprites;
-    const c = CONFIG.road;
-    if (o.kind === 'scenery') {
-      const left = o.i % 2 === 0;
-      const kind = (o.i * 7) % 3;
-      const name = kind === 2 ? 'tree' : (kind === 0 ? 'shop_red' : 'shop_blue');
-      const x = (left ? -1 : 1) * (c.halfWidth + (kind === 2 ? 2 : 5));
-      const p = this.road.project(x, o.d);
-      sp.draw(g, name, p.x, p.y, { scale: this.fit(name, kind === 2 ? 4 : 4.5, p.ppm), flip: !left });
-    } else if (o.kind === 'gate') {
-      const p = this.road.project(0, o.d);
-      sp.draw(g, 'gate', p.x, p.y, { scale: this.fit('gate', 5, p.ppm) });
-    } else if (o.kind === 'item') {
-      this.drawItem(g, o.it, o.d);
-    } else {
-      this.drawPlayer(g, run, now);
-    }
-  }
-
-  drawItem(g, it, d) {
-    if (it.type === 'pole') return this.drawPole(g, d);
-    const lanes = CONFIG.run.lanes;
-    const p = this.road.project(lanes[it.lanes[0]], d);
-    const name = it.type === 'bikes' ? 'bike' : 'puddle';
-    const worldH = it.type === 'bikes' ? 1.8 : 0.5;
-    this.r.sprites.draw(g, name, p.x, p.y, { scale: this.fit(name, worldH, p.ppm) });
-  }
-
-  // 晾衣杆：两根杆子、一根横杆、挂着的衣服；横杆高 1.3 米，只能钻过去
-  drawPole(g, d) {
-    const c = CONFIG.road;
-    const L = this.road.project(-(c.halfWidth + 0.3), d);
-    const R = this.road.project(c.halfWidth + 0.3, d);
-    const top = 1.3 * L.ppm;
-    const pw = Math.max(1, 0.2 * L.ppm);
-    rect(g, L.x - pw / 2, L.y - top, pw, top, P.desk2);
-    rect(g, R.x - pw / 2, R.y - top, pw, top, P.desk2);
-    rect(g, L.x, L.y - top, R.x - L.x, Math.max(1, 0.08 * L.ppm), P.ink);
-    for (let k = 0; k < 5; k++) {
-      const cx = L.x + ((R.x - L.x) * (k + 0.5)) / 5;
-      rect(g, cx - 0.4 * L.ppm, L.y - top, 0.8 * L.ppm, 0.5 * L.ppm, k % 2 ? P.red : P.shirt);
-    }
-  }
-
-  drawPlayer(g, run, now) {
-    const c = CONFIG.road;
-    const sp = this.r.sprites;
-    const p = this.road.project(run.x, c.camBack);
-    const scale = this.fit('student_run', 1.8, p.ppm);
-    rect(g, p.x - 0.5 * p.ppm, p.y - 1, p.ppm, 2, 'rgba(0,0,0,0.25)'); // 影子
-    if (run.stumble) {
-      sp.draw(g, 'student_fall', p.x, p.y, { scale });
-      return;
-    }
-    if (run.action === 'jump') {
-      const lift = Math.sin(Math.PI * run.actionProgress) * 1.2 * p.ppm;
-      sp.draw(g, 'student_jump', p.x, p.y - lift, { scale });
-      return;
-    }
-    if (run.action === 'slide') {
-      sp.draw(g, 'student_slide', p.x, p.y, { scale });
-      return;
-    }
-    const frame = Math.floor(now / (run.sprinting ? 90 : 140));
-    sp.draw(g, 'student_run', p.x, p.y, { frame, scale });
-    if (run.sprinting) {
-      for (let k = 0; k < 4; k++) rect(g, k % 2 ? 6 : this.r.w - 8, 140 + ((now / 4 + k * 37) % 160), 2, 10, P.white);
-    }
-    if (run.winded) this.r.text('呼……呼……', p.x, p.y - scale * 18 - 6, { size: 7 });
   }
 
   hud(g, view, now) {
@@ -3055,8 +3765,13 @@ class RunScene {
     clockPlate(g, view.clock, now);
     rect(g, 120, 3, 57, 14, P.black);
     r.text(`学校 ${Math.max(0, Math.ceil(view.track.length - run.z))}m`, 148, 10, { size: 7, color: P.white });
+    rect(g, 4, 298, 172, 16, 'rgba(20,18,16,0.6)');
     r.text('体力', 18, 306, { size: 7, color: P.white });
     bar(g, 32, 303, 120, 6, run.stamina / run.staminaMax, run.winded ? P.warn : P.gold, P.ink);
+    if (run.winded) r.text('喘不过气了……', r.w / 2, 286, { size: 8, color: P.warn });
+    if (run.sprinting) {
+      for (let k = 0; k < 4; k++) rect(g, k % 2 ? 6 : r.w - 8, 140 + ((now / 4 + k * 37) % 140), 2, 10, P.white);
+    }
   }
 }
 
@@ -3071,23 +3786,21 @@ Expected: PASS（全部测试）
 - [ ] **Step 5: 提交**
 
 ```bash
-git add js/renderer/road.js js/renderer/scene-leaving.js js/renderer/scene-run.js test/render-smoke.test.cjs
-git commit -m "feat: draw pseudo-3d road, leaving transition and run scene"
+git add js/renderer/world3d.js js/renderer/scene-leaving.js js/renderer/scene-run.js test/render-smoke.test.cjs
+git commit -m "feat: build isometric pixel 3d run scene with three.js"
 ```
 
 ---
 
-### Task 12: 平台层、主循环和接线
+### Task 14: 正式主循环和接线
 
 **Files:**
-- Create: `js/platform.js`, `js/main.js`
+- Modify: `js/main.js`（整个替换 Task 3 的验证程序）
 - Test: `test/main-wiring.test.cjs`
 
 **Interfaces:**
-- Consumes: 前面所有模块
-- Produces:
-  - `js/platform.js` 导出 `{ width, height, dpr, safe, createScreenCanvas(), createOffscreen(w, h), onTouchStart(fn), onTouchMove(fn), onTouchEnd(fn), onTouchCancel(fn), onHide(fn), onShow(fn), vibrate(kind), getStorage(key), setStorage(key, value), raf(fn), now() }`；触摸回调签名 `fn(id, x, y)`
-  - `js/main.js` 导出 `{ engine, renderer }`（只给测试和浏览器预览用）
+- Consumes: 前面所有模块；`ThreePresenter`（Task 3）
+- Produces: `js/main.js` 导出 `{ engine, renderer }`（只给测试和浏览器预览用）
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -3099,8 +3812,9 @@ const assert = require('node:assert/strict');
 
 /**
  * main.js 接线测试：用假的 tt 全局把整条链路跑起来
- *   触摸 → GestureTracker → 引擎 → 渲染器，以及切后台、结算、重开
- * main.js 加载时就会读取 tt，所以 tt 必须在 require 之前装好
+ *   触摸 → GestureTracker → 引擎 → 渲染器 → presenter，以及切后台、结算、重开
+ * main.js 加载时就会读取 tt，所以 tt 必须在 require 之前装好；
+ * Node 里没有 WebGL，所以把 presenter-three 换成只记录帧的假模块
  */
 const W = 375;
 const H = 812;
@@ -3126,6 +3840,13 @@ global.tt = {
 ['onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel', 'onHide', 'onShow']
   .forEach((k) => { global.tt[k] = (fn) => { cbs[k] = fn; }; });
 
+const frames3 = [];
+const presenterPath = require.resolve('../js/renderer/presenter-three');
+require.cache[presenterPath] = {
+  id: presenterPath, filename: presenterPath, loaded: true,
+  exports: class FakePresenter { present(f) { frames3.push(f); } },
+};
+
 const { engine, renderer } = require('../js/main');
 
 const touch = (k, id, x, y) => cbs[k]({ changedTouches: [{ identifier: id, clientX: x, clientY: y }] });
@@ -3150,6 +3871,7 @@ const swipe = (dx, dy) => {
 test('完整一局：开始 → 关机 → 转场 → 跑步（滑动、长按冲刺）→ 切后台暂停 → 结算 → 重开', () => {
   frames(0.1);
   assert.equal(renderer.scene, 'title');
+  assert.equal(frames3[frames3.length - 1].world, null);
   tapButton('start');
   assert.equal(engine.state, 'home');
   assert.equal(renderer.scene, 'home');
@@ -3170,6 +3892,7 @@ test('完整一局：开始 → 关机 → 转场 → 跑步（滑动、长按�
   frames(2.1);
   assert.equal(engine.state, 'run');
   assert.equal(renderer.scene, 'run');
+  assert.ok(frames3[frames3.length - 1].world);
 
   swipe(-40, 0);
   frames(0.1);
@@ -3211,107 +3934,11 @@ test('完整一局：开始 → 关机 → 转场 → 跑步（滑动、长按�
 - [ ] **Step 2: 运行，确认失败**
 
 Run: `node --test test/main-wiring.test.cjs`
-Expected: FAIL（Cannot find module '../js/main'）
+Expected: FAIL（Task 3 的验证程序没有导出 `engine` 和 `renderer`）
 
 - [ ] **Step 3: 写实现**
 
-`js/platform.js`:
-
-```js
-/**
- * 平台适配层：所有 tt.* 调用集中在这里，其余模块不直接依赖抖音 API
- * 迁移到微信小游戏时，把 tt 换成 wx 即可
- */
-/* global tt */
-const api = typeof tt !== 'undefined' ? tt : null;
-
-const sys = api.getSystemInfoSync();
-const width = sys.windowWidth;
-const height = sys.windowHeight;
-const dpr = sys.pixelRatio || 1;
-
-// 安全区：顶部避开状态栏和右上角胶囊按钮，底部避开 Home Indicator
-function computeSafeInsets() {
-  let top = sys.safeArea ? sys.safeArea.top : sys.statusBarHeight || 20;
-  const bottom = sys.safeArea ? Math.max(0, height - sys.safeArea.bottom) : 0;
-  try {
-    const menu = api.getMenuButtonBoundingClientRect && api.getMenuButtonBoundingClientRect();
-    if (menu && menu.bottom) top = Math.max(top, menu.bottom);
-  } catch (e) { /* 部分版本不支持，忽略 */ }
-  return { top, bottom };
-}
-
-// 第一个 createCanvas 创建的是上屏 Canvas，必须最先调用
-function createScreenCanvas() {
-  const canvas = api.createCanvas();
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  return { canvas, ctx };
-}
-
-// 之后的 createCanvas 都是离屏画布：像素画布、精灵缓存
-function createOffscreen(w, h) {
-  const canvas = api.createCanvas();
-  canvas.width = w;
-  canvas.height = h;
-  return canvas;
-}
-
-// 触摸：对本次变化的每根手指回调 fn(id, x, y)
-function bindTouches(register, fn) {
-  register((res) => {
-    const list = res.changedTouches || [];
-    for (let i = 0; i < list.length; i++) {
-      const t = list[i];
-      fn(t.identifier != null ? t.identifier : i, t.clientX, t.clientY);
-    }
-  });
-}
-
-function onTouchStart(fn) { bindTouches((cb) => api.onTouchStart(cb), fn); }
-function onTouchMove(fn) { bindTouches((cb) => api.onTouchMove(cb), fn); }
-function onTouchEnd(fn) { bindTouches((cb) => api.onTouchEnd(cb), fn); }
-function onTouchCancel(fn) {
-  if (api.onTouchCancel) bindTouches((cb) => api.onTouchCancel(cb), fn);
-}
-
-function onHide(fn) { if (api.onHide) api.onHide(fn); }
-function onShow(fn) { if (api.onShow) api.onShow(fn); }
-
-// kind: 'light' 轻震一次；'double' 短震两次；'long' 长震一次
-function vibrate(kind = 'light') {
-  try {
-    if (kind === 'long') {
-      if (api.vibrateLong) api.vibrateLong({});
-      return;
-    }
-    if (api.vibrateShort) api.vibrateShort({});
-    if (kind === 'double') setTimeout(() => { try { api.vibrateShort({}); } catch (e) { /* 忽略 */ } }, 120);
-  } catch (e) { /* 忽略 */ }
-}
-
-function getStorage(key) {
-  try { return api.getStorageSync(key); } catch (e) { return null; }
-}
-
-function setStorage(key, value) {
-  try { api.setStorageSync(key, value); } catch (e) { /* 忽略 */ }
-}
-
-module.exports = {
-  width, height, dpr,
-  safe: computeSafeInsets(),
-  createScreenCanvas, createOffscreen,
-  onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onHide, onShow,
-  vibrate, getStorage, setStorage,
-  raf: (fn) => requestAnimationFrame(fn),
-  now: () => Date.now(),
-};
-```
-
-`js/main.js`:
+`js/main.js`（整个替换）:
 
 ```js
 const CONFIG = require('./config');
@@ -3321,16 +3948,19 @@ const platform = require('./platform');
 const GestureTracker = require('./input');
 const { GameEngine } = require('./engine/game-engine');
 const Renderer = require('./renderer/renderer');
+const ThreePresenter = require('./renderer/presenter-three');
 
 /**
  * 入口：组装模块、绑定事件、驱动主循环
- *   触摸 → GestureTracker → 引擎（逻辑） → 事件 → 渲染器 / 震动
+ *   触摸 → GestureTracker → 引擎（逻辑） → 事件 → 渲染器 → presenter 上屏 / 震动
  */
-const { ctx } = platform.createScreenCanvas();
+const { canvas, gl } = platform.createScreenCanvas();
+const presenter = new ThreePresenter({ canvas, gl, W: platform.width, H: platform.height, dpr: platform.dpr });
 const engine = new GameEngine({ config: CONFIG, obstacles: OBSTACLES });
-const renderer = new Renderer(ctx, platform.width, platform.height, platform.safe, {
+const renderer = new Renderer(platform.width, platform.height, platform.safe, {
   dpr: platform.dpr,
   createCanvas: platform.createOffscreen,
+  presenter,
 });
 const gestures = new GestureTracker();
 const SCENES = { home: 'home', leaving: 'leaving', run: 'run' };
@@ -3398,7 +4028,7 @@ function loop() {
   last = t;
   dispatch(gestures.tick(t));
   engine.update(dt);
-  renderer.draw(engine.view(), t, Math.min(dt, CONFIG.maxDt));
+  renderer.draw(engine.view(), t);
   platform.raf(loop);
 }
 
@@ -3415,100 +4045,17 @@ Expected: PASS（全部测试）
 - [ ] **Step 5: 提交**
 
 ```bash
-git add js/platform.js js/main.js test/main-wiring.test.cjs
-git commit -m "feat: wire platform, gestures, engine and renderer in main loop"
+git add js/main.js test/main-wiring.test.cjs
+git commit -m "feat: wire gestures, engine, renderer and three presenter in main loop"
 ```
 
 ---
 
-### Task 13: 浏览器预览和试玩验证
+### Task 15: 试玩验证
 
-**Files:**
-- Create: `.claude/launch.json`, `.claude/preview/index.html`（都在 `.gitignore` 里，不提交）
+**Files:** 无新增（用 Task 3 的浏览器预览）
 
-**Interfaces:**
-- Consumes: `js/main.js` 导出的 `{ engine, renderer }`
-
-- [ ] **Step 1: 写预览服务器配置**
-
-`.claude/launch.json`:
-
-```json
-{
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "retro-run-preview",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8766", "--bind", "127.0.0.1"],
-      "port": 8766
-    }
-  ]
-}
-```
-
-- [ ] **Step 2: 写浏览器预览页**
-
-`.claude/preview/index.html`:
-
-```html
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>retro_run 预览</title>
-<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;touch-action:none}</style>
-</head><body><canvas id="c"></canvas>
-<script>
-// 仅供本地预览（服务根目录为工程根目录，访问 /.claude/preview/index.html）：
-// 用浏览器模拟 tt 接口，并提供一个同步的 CommonJS 加载器
-const cache = {};
-function load(path) {
-  if (cache[path]) return cache[path].exports;
-  const x = new XMLHttpRequest(); x.open('GET', path, false); x.send();
-  if (x.status !== 200) throw new Error('load ' + path + ' ' + x.status);
-  const module = { exports: {} }; cache[path] = module;
-  const dir = path.slice(0, path.lastIndexOf('/') + 1);
-  const req = (p) => load(new URL(p.endsWith('.js') ? p : p + '.js', location.origin + dir).pathname);
-  new Function('module', 'exports', 'require', x.responseText + '\n//# sourceURL=' + path)(module, module.exports, req);
-  return module.exports;
-}
-const W = innerWidth, H = innerHeight, screen = document.getElementById('c');
-screen.style.width = W + 'px'; screen.style.height = H + 'px';
-let first = true;
-const handlers = {};
-function emit(kind, id, e) { (handlers[kind] || []).forEach((fn) => fn({ changedTouches: [{ identifier: id, clientX: e.clientX, clientY: e.clientY }] })); }
-let down = false;
-screen.addEventListener('mousedown', (e) => { down = true; emit('start', 0, e); });
-screen.addEventListener('mousemove', (e) => { if (down) emit('move', 0, e); });
-addEventListener('mouseup', (e) => { if (down) { down = false; emit('end', 0, e); } });
-screen.addEventListener('touchstart', (e) => { e.preventDefault(); [...e.changedTouches].forEach((t) => emit('start', t.identifier, t)); }, { passive: false });
-screen.addEventListener('touchmove', (e) => { e.preventDefault(); [...e.changedTouches].forEach((t) => emit('move', t.identifier, t)); }, { passive: false });
-screen.addEventListener('touchend', (e) => [...e.changedTouches].forEach((t) => emit('end', t.identifier, t)));
-// 键盘：方向键 = 滑动，空格按住 = 冲刺（只为桌面试玩方便）
-const KEY = { ArrowLeft: [-40, 0], ArrowRight: [40, 0], ArrowUp: [0, -40], ArrowDown: [0, 40] };
-addEventListener('keydown', (e) => {
-  if (KEY[e.key]) { const [dx, dy] = KEY[e.key]; emit('start', 9, { clientX: 200, clientY: 400 }); emit('move', 9, { clientX: 200 + dx, clientY: 400 + dy }); emit('end', 9, { clientX: 200 + dx, clientY: 400 + dy }); }
-  if (e.key === ' ' && !e.repeat) emit('start', 8, { clientX: 1, clientY: 1 });
-});
-addEventListener('keyup', (e) => { if (e.key === ' ') emit('end', 8, { clientX: 1, clientY: 1 }); });
-const on = (k) => (fn) => (handlers[k] = handlers[k] || []).push(fn);
-window.tt = {
-  getSystemInfoSync: () => ({ windowWidth: W, windowHeight: H, pixelRatio: devicePixelRatio || 1, safeArea: { top: 44, bottom: H - 34 } }),
-  getMenuButtonBoundingClientRect: () => ({ bottom: 80 }),
-  createCanvas: () => { if (first) { first = false; return screen; } return document.createElement('canvas'); },
-  onTouchStart: on('start'), onTouchMove: on('move'), onTouchEnd: on('end'), onTouchCancel: on('cancel'),
-  onHide: (fn) => { window.__hide = fn; }, onShow: () => {},
-  vibrateShort() {}, vibrateLong() {}, getStorageSync: () => null, setStorageSync() {},
-};
-// 调试钩子：window.E 是引擎，window.R 是渲染器
-const M = load('/js/main.js');
-window.E = M.engine; window.R = M.renderer;
-</script></body></html>
-```
-
-注意：键盘的空格冲刺用的是 `(1, 1)` 这个点，抬起时会产生一次 tap；在跑步段 tap 不对应任何按钮，所以没有副作用。
-
-- [ ] **Step 3: 启动预览并按手机尺寸检查**
+- [ ] **Step 1: 浏览器里按手机尺寸检查**
 
 用 `mcp__Claude_Browser__preview_start`（name: `retro-run-preview`）启动服务器，打开 `http://127.0.0.1:8766/.claude/preview/index.html`，用 `resize_window` 切到 `mobile` 预设后刷新。依次截图确认：
 
@@ -3516,20 +4063,21 @@ window.E = M.engine; window.R = M.renderer;
 2. 家里：显示器里有恐龙、任务栏时钟；左上角电子表在走；右上角过瘾值在涨；12:28 出现诱惑框和进度条
 3. 点"关机"出现对话框；"取消"能回去；"确定"后屏幕变蓝显示"正在关闭计算机……"（卡住时出现"结束任务"按钮）
 4. 转场三格：换鞋、锁门、下楼
-5. 跑步：道路有透视和弯道，店铺和树迎面而来；方向键换道、跳、钻；按住空格冲刺时体力条下降；撞到障碍时屏幕抖动并出现"-x 分钟"
-6. 到校门后显示结算；迟到时显示"迟到了"；在家挂到 13:00 显示"你还坐在电脑前"（可以在控制台执行 `E.clock.minutes = 12*60+59.9` 快速验证）
+5. 跑步：斜 45° 俯视，学生朝左上方跑；右边店铺、左边树循环出现；车道线在后退；有颗粒状阴影；方向键换道、跳、钻；按住空格冲刺时体力条下降；撞到障碍时屏幕抖动并出现"-x 分钟"；跑到终点看到校门
+6. 到校后显示结算；迟到时显示"迟到了"；在家挂到 13:00 显示"你还坐在电脑前"（可以在控制台执行 `E.clock.minutes = 12*60+59.9` 快速验证）
 
-用 `read_console_messages`（onlyErrors）确认没有报错。检查完后把窗口尺寸恢复成 `desktop`。
+用 `read_console_messages`（onlyErrors）确认没有报错。检查完后把窗口恢复成 `desktop`。
 
-- [ ] **Step 4: 在抖音开发者工具里打开工程**
+- [ ] **Step 2: 抖音开发者工具和真机**
 
-把工程目录导入抖音开发者工具，确认编译通过、模拟器里能玩完一局。如果开发者工具报语法不支持，记录具体语法，在 `js/` 里改成更老的写法后重新跑 `npm test`。
+在抖音开发者工具里编译运行一局，再扫码在真机上玩一局，确认和浏览器一致、帧率和 Task 3 的验证结果相近。
 
-- [ ] **Step 5: 交给 Rainman 试玩，收集反馈**
+- [ ] **Step 3: 交给 Rainman 试玩，收集反馈**
 
-请 Rainman 在真机上玩几局，重点回答 M1 要验证的两个问题（设计文档第 12 节）：
+请 Rainman 在真机上玩几局，重点回答 M1 要验证的问题（设计文档第 12 节）：
 - "再玩一会儿还是现在走"有没有纠结？
 - 跑步的手感爽不爽（换道、跳、钻的响应，冲刺和体力的节奏，速度感）？
+- 斜 45° 像素 3D 的画面有没有年代感？
 
 把试玩结论写进设计文档第 1 节末尾（参照 `nine_to_nope` 的"M1 试玩结论"写法），然后提交并推送：
 
